@@ -1,0 +1,11 @@
+[Unit]
+Description=Trigger Snapchat Ads hourly Slack heartbeat (:05 past the hour)
+
+[Timer]
+# Timezone below is an example (America/Los_Angeles); change to your reporting timezone.
+OnCalendar=*-*-* *:05:00 America/Los_Angeles
+Persistent=true
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target

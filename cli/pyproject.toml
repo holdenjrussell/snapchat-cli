@@ -1,0 +1,21 @@
+[project]
+name = "snapchat-ads-cli"
+version = "0.1.0"
+description = "Snapchat Ads CLI for Claude Code -- full Snap Marketing API surface"
+requires-python = ">=3.10"
+dependencies = [
+    "click>=8.1.0",
+    "httpx>=0.27.0",
+    "tomli>=2.0.0; python_version < '3.11'",
+    "tomli-w>=1.0.0",
+]
+
+[project.scripts]
+snapchat-ads = "snapchat_ads_cli.cli:cli"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/snapchat_ads_cli"]

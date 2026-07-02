@@ -1,0 +1,89 @@
+{
+  "brand_name": "My Brand",
+  "headline": "Your headline here",
+  "slack_channel_id": "C0XXXXXXXXX",
+  "cli_account": "default",
+  "timezone": "America/Los_Angeles",
+  "snap_shared": {
+    "dynamic_template_id": "",
+    "interaction_zone_id": "",
+    "profile_id": "",
+    "pixel_id": ""
+  },
+  "optimizer": {
+    "windows_days": [3, 7, 14],
+    "fresh_hold_hours": 72,
+    "min_7d_spend_zero_purchase": 40.0,
+    "min_3d_spend_zero_purchase": 15.0,
+    "min_14d_spend_zero_purchase": 75.0,
+    "target_cpa": 75.0,
+    "high_cpa_multiplier": 2.0,
+    "min_14d_spend_high_cpa": 150.0,
+    "max_pause_ads_per_run": 4,
+    "max_pause_ad_share": 0.2,
+    "max_pause_spend_share": 0.30,
+    "min_active_ads_per_squad_after_pause": 2,
+    "target_roas": 1.2,
+    "eventual_target_roas": 1.5,
+    "governor_band": 0.15,
+    "attribution_delay_days": 2,
+    "squad_window_days": 7,
+    "min_squad_window_spend": 150.0,
+    "min_squad_purchases_scale": 3,
+    "utilization_full": 0.85,
+    "budget_up_pct": 0.30,
+    "budget_up_pct_large": 0.20,
+    "budget_large_threshold": 1500.0,
+    "budget_down_pct": 0.30,
+    "cpa_step_up_pct": 0.10,
+    "cpa_step_down_pct": 0.10,
+    "cpa_step_down_pct_severe": 0.15,
+    "cpa_floor": 30.0,
+    "cpa_ceiling": 150.0,
+    "squad_cooldown_hours": 48,
+    "max_squad_changes_per_run": 4,
+    "max_budget_change_pct_per_run": 0.35,
+    "max_cpa_change_pct_per_run": 0.20
+  },
+  "meta_winners": {
+    "min_spend": 250.0,
+    "min_roas": 1.5,
+    "lookback_days": 30
+  },
+  "cron": {
+    "model": null,
+    "skills": ["snapchat-ads", "slack-format"],
+    "daily_expr": "20 8 * * *",
+    "weekly_expr": "35 9 * * 1"
+  },
+  "products": {
+    "product_a": {
+      "label": "Product A",
+      "keywords": ["product a", "prod a"],
+      "dpa_campaign_id": "",
+      "dpa_ad_squad_id": "",
+      "nondpa_campaign_id": "",
+      "nondpa_ad_squad_id": "",
+      "product_set_id": "",
+      "handle_prefix": "product-a",
+      "landing_pages": [
+        {"handle": "product-a-standard", "label": "standard", "landing_page": "https://example.com/products/product-a-standard"},
+        {"handle": "product-a-deluxe", "label": "deluxe", "landing_page": "https://example.com/products/product-a-deluxe"}
+      ]
+    },
+    "product_b": {
+      "label": "Product B",
+      "keywords": ["product b", "prod b"],
+      "dpa_campaign_id": "",
+      "dpa_ad_squad_id": "",
+      "nondpa_campaign_id": "",
+      "nondpa_ad_squad_id": "",
+      "product_set_id": "",
+      "handle_prefix": "product-b",
+      "landing_pages": [
+        {"handle": "product-b-standard", "label": "standard", "landing_page": "https://example.com/products/product-b-standard"},
+        {"handle": "product-b-deluxe", "label": "deluxe", "landing_page": "https://example.com/products/product-b-deluxe"}
+      ]
+    }
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "countries": [
+    {"code": "us", "name": "United States"},
+    {"code": "ca", "name": "Canada"},
+    {"code": "gb", "name": "United Kingdom"},
+    {"code": "au", "name": "Australia"},
+    {"code": "fr", "name": "France"},
+    {"code": "de", "name": "Germany"},
+    {"code": "nl", "name": "Netherlands"},
+    {"code": "ie", "name": "Ireland"},
+    {"code": "se", "name": "Sweden"},
+    {"code": "no", "name": "Norway"},
+    {"code": "dk", "name": "Denmark"},
+    {"code": "fi", "name": "Finland"},
+    {"code": "es", "name": "Spain"},
+    {"code": "it", "name": "Italy"},
+    {"code": "mx", "name": "Mexico"},
+    {"code": "br", "name": "Brazil"},
+    {"code": "in", "name": "India"},
+    {"code": "ae", "name": "United Arab Emirates"},
+    {"code": "sa", "name": "Saudi Arabia"}
+  ],
+  "location_types": [
+    {"id": "country", "name": "Country"},
+    {"id": "region", "name": "Region/State"},
+    {"id": "metro", "name": "Metro area"},
+    {"id": "dma", "name": "Designated Market Area (US only)"},
+    {"id": "postal_code", "name": "Postal/ZIP code"},
+    {"id": "circle", "name": "Geo-circle (lat/lng + radius)"}
+  ],
+  "operations": ["INCLUDE", "EXCLUDE"]
+}

@@ -1,0 +1,50 @@
+{
+  "category_groups": [
+    {
+      "name": "Snap Lifestyle Categories",
+      "categories": [
+        "Adventure Seekers",
+        "Auto Enthusiasts",
+        "Beachgoers and Surfers",
+        "Beauty Mavens",
+        "Bookworms and Avid Readers",
+        "Concert and Music Festival Goers",
+        "DIY-ers",
+        "Fashionistas",
+        "Film and TV Fans",
+        "Foodies",
+        "Gamers",
+        "Hipsters and Trendsetters",
+        "Home Decorators",
+        "Outdoor and Nature Enthusiasts",
+        "Parents",
+        "Pet Owners",
+        "Sports Fans",
+        "Tech Enthusiasts",
+        "Travelers"
+      ]
+    },
+    {
+      "name": "Shopper / Visitation Audiences",
+      "categories": [
+        "Big Box Shoppers",
+        "Department Store Shoppers",
+        "Grocery Shoppers",
+        "Home Improvement Shoppers",
+        "Quick Service Restaurant Visitors",
+        "Specialty Retail Shoppers"
+      ]
+    },
+    {
+      "name": "Nielsen Categories",
+      "categories": [
+        "Auto Intenders",
+        "CPG Buyers",
+        "Financial Services Customers",
+        "Telecom Subscribers",
+        "Travel Intenders"
+      ]
+    }
+  ],
+  "note": "Static reference. Snap publishes the full live category list in their docs and Business Manager. Use `targeting insights` for a live targeting-size estimate."
+}

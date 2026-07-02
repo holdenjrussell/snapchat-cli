@@ -1,0 +1,29 @@
+{
+  "age_groups": [
+    {"id": "13-17", "name": "13-17"},
+    {"id": "18-20", "name": "18-20"},
+    {"id": "21-24", "name": "21-24"},
+    {"id": "25-34", "name": "25-34"},
+    {"id": "35+",   "name": "35 and over"}
+  ],
+  "min_age_max_age_range": {"min": 13, "max": 55},
+  "genders": [
+    {"id": "MALE",   "name": "Male"},
+    {"id": "FEMALE", "name": "Female"},
+    {"id": "OTHER",  "name": "Other"}
+  ],
+  "languages": [
+    {"id": "en", "name": "English"},
+    {"id": "es", "name": "Spanish"},
+    {"id": "fr", "name": "French"},
+    {"id": "de", "name": "German"},
+    {"id": "it", "name": "Italian"},
+    {"id": "pt", "name": "Portuguese"},
+    {"id": "nl", "name": "Dutch"},
+    {"id": "sv", "name": "Swedish"},
+    {"id": "no", "name": "Norwegian"},
+    {"id": "da", "name": "Danish"},
+    {"id": "ar", "name": "Arabic"}
+  ],
+  "operations": ["INCLUDE", "EXCLUDE"]
+}

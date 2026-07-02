@@ -1,0 +1,14 @@
+[Unit]
+Description=Snapchat Ads hourly Slack heartbeat (main message + details thread)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=%h/.config/snapchat-ads-cli/.env
+Environment=SNAPCHAT_HOURLY_SLACK_CHANNEL=__SLACK_CHANNEL__ BRAND_NAME=__BRAND__
+WorkingDirectory=__REPO__
+ExecStart=/usr/bin/python3 __REPO__/reports/post_snapchat_hourly_heartbeat.py
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=600

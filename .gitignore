@@ -1,0 +1,19 @@
+# Secrets & instance config — never commit
+.env
+*.env
+!.env.example
+!**/.env.example
+config/optimizer.json
+*.token.json
+accounts.toml
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Local state
+*.jsonl
+.cache/
