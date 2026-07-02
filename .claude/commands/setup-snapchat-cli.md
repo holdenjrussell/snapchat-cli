@@ -25,10 +25,17 @@ Repo layout (all paths relative to this repo root):
 ## Phase 1 — Credentials & OAuth
 
 1. `mkdir -p ~/.config/snapchat-ads-cli && cp .env.example ~/.config/snapchat-ads-cli/.env && chmod 0600 ~/.config/snapchat-ads-cli/.env`
-2. Ask the user for `SNAPCHAT_CLIENT_ID`, `SNAPCHAT_CLIENT_SECRET`, and their redirect URI (from Snap Business Manager → Business Details → Apps; they may need to create an app with the Marketing API scope). Fill them into the env file — never echo secrets back.
-3. `uv run --directory cli snapchat-ads init` (writes `~/.config/snapchat-ads-cli/accounts.toml` with the `default` account).
-4. `uv run --directory cli snapchat-ads --account default auth login` — give the user the printed authorize URL, have them approve and paste the `code=` value back.
-5. Discover IDs and write them into both the env file and `accounts.toml`:
+2. Ask the user for `SNAPCHAT_CLIENT_ID` and `SNAPCHAT_CLIENT_SECRET` (from Snap Business Manager → Business Details → Apps; they may need to create an app with the Marketing API scope). Fill them into the env file — never echo secrets back.
+3. **Redirect URI — provision it yourself, don't ask the user for one.** Snap requires an HTTPS redirect URI and the CLI needs the browser redirect to land back on this machine. If `tailscale` is on PATH (check with `which tailscale`), Tailscale Funnel is the default answer:
+   - Dry-run first: `uv run --directory cli snapchat-ads auth callback-url --check` — confirm `backend_state` is `Running` and `conflicts` is empty. If the default port (8443) has conflicts, retry `--check` with `--https-port 443` or `--https-port 10000` until you find a clean port; **never pass `--force`** — funnel exposure is per-port and would publish every conflicting path to the open internet.
+   - Provision: `uv run --directory cli snapchat-ads auth callback-url` (plus the `--https-port` you chose). The JSON output contains `callback_url`.
+   - **Hand the `callback_url` to the user** and have them register it in Snap Business Manager → Business Details → Apps → their OAuth app → Redirect URI (the value must match exactly). Wait for them to confirm it's saved.
+   - Write the same URL into the env file as `SNAPCHAT_REDIRECT_URI=<callback_url>`.
+   - If funnel errors about the `funnel` node attribute, the tailnet ACLs don't allow Funnel yet — send the user to https://tailscale.com/kb/1223/funnel, then retry.
+   - No Tailscale on this machine? Ask the user for an HTTPS redirect URI they control, set `SNAPCHAT_REDIRECT_URI`, and use the manual paste flow in step 5.
+4. `uv run --directory cli snapchat-ads init` (writes `~/.config/snapchat-ads-cli/accounts.toml` with the `default` account).
+5. `uv run --directory cli snapchat-ads --account default auth login --listen` — give the user the printed authorize URL; when they approve in the browser, the funnel delivers the `code=` straight to the CLI (no paste) and tears the route back down. Re-auth later works the same way — the URL stays registered on the Snap app, and `auth login --listen` re-provisions the route on demand. Without Tailscale, run plain `auth login` and have the user paste the `code=` value from the redirect URL.
+6. Discover IDs and write them into both the env file and `accounts.toml`:
    - `snapchat-ads --human org list` → `SNAPCHAT_ORGANIZATION_ID`
    - `snapchat-ads --human org list-accounts <ORG_ID>` → `SNAPCHAT_AD_ACCOUNT_ID`
    - `snapchat-ads --human pixel list` → `SNAPCHAT_PIXEL_ID` (may not exist yet — fine)

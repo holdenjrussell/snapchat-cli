@@ -8,13 +8,15 @@ from __future__ import annotations
 
 import json
 import logging
+import secrets
 import sys
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import click
 
-from . import __version__
+from . import __version__, funnel
 from .api_client import SnapApiError, SnapAuthError, SnapchatApiClient
 from .auth import (
     auth_status,
@@ -131,6 +133,35 @@ def _csv_list(value: str | None) -> list[str] | None:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
+def _funnel_target_from_uri(redirect_uri: str) -> tuple[int, str, int]:
+    """Resolve (https_port, mount_path, local_port) for a funnel redirect URI.
+
+    The URI must point at this node's tailnet DNS name. When the route is
+    already in the serve config, the existing loopback proxy port is reused
+    so the listener binds where tailscale already forwards.
+    """
+    parts = urlsplit(redirect_uri)
+    if parts.scheme != "https" or not parts.hostname:
+        raise ValueError(f"SNAPCHAT_REDIRECT_URI is not an https URL: {redirect_uri}")
+    status = funnel.node_status()
+    if parts.hostname != status["dns_name"]:
+        raise ValueError(
+            f"SNAPCHAT_REDIRECT_URI host {parts.hostname} is not this Tailscale node "
+            f"({status['dns_name']}); --listen can only capture callbacks that "
+            f"funnel to this machine."
+        )
+    https_port = parts.port or 443
+    mount_path = parts.path or "/"
+    handlers = funnel.port_handlers(funnel.serve_config(), status["dns_name"], https_port)
+    local_port = funnel.DEFAULT_LOCAL_PORT
+    existing = handlers.get(mount_path)
+    if existing:
+        proxy_port = urlsplit(existing).port
+        if proxy_port:
+            local_port = proxy_port
+    return https_port, mount_path, local_port
+
+
 # ---------------------------------------------------------------------------
 # Root group
 # ---------------------------------------------------------------------------
@@ -163,8 +194,42 @@ def auth() -> None:
 @click.option("--scope", default=None, help="OAuth scope (defaults to snapchat-marketing-api)")
 @click.option("--state", default=None, help="OAuth state value")
 @click.option("--code", default=None, help="Skip URL prompt and exchange this code directly")
+@click.option(
+    "--listen",
+    is_flag=True,
+    default=False,
+    help="Capture the ?code= redirect automatically via the Tailscale funnel "
+    "callback (see `auth callback-url`) instead of prompting for a paste",
+)
+@click.option(
+    "--listen-timeout",
+    default=300,
+    show_default=True,
+    help="Seconds to wait for the redirect in --listen mode",
+)
+@click.option(
+    "--keep-funnel",
+    is_flag=True,
+    default=False,
+    help="Leave the funnel route up after login even if this command created it",
+)
+@click.option(
+    "--force",
+    is_flag=True,
+    default=False,
+    help="In --listen mode, enable funnel even if the HTTPS port already serves other paths",
+)
 @click.pass_context
-def auth_login(ctx: click.Context, scope: str | None, state: str | None, code: str | None) -> None:
+def auth_login(
+    ctx: click.Context,
+    scope: str | None,
+    state: str | None,
+    code: str | None,
+    listen: bool,
+    listen_timeout: int,
+    keep_funnel: bool,
+    force: bool,
+) -> None:
     """Run the OAuth authorize-code flow and persist tokens."""
     config: AppConfig = ctx.obj["config"]
     account_key: str = ctx.obj["account"]
@@ -189,24 +254,79 @@ def auth_login(ctx: click.Context, scope: str | None, state: str | None, code: s
     missing = [name for name, val in [
         ("SNAPCHAT_CLIENT_ID", client_id),
         ("SNAPCHAT_CLIENT_SECRET", client_secret),
-        ("SNAPCHAT_REDIRECT_URI", redirect_uri),
     ] if not val]
+    if not redirect_uri and not (listen and not code):
+        missing.append("SNAPCHAT_REDIRECT_URI")
     if missing:
         _bail(f"Missing env vars: {', '.join(missing)}. See .env.example.")
         return
 
-    assert client_id and client_secret and redirect_uri  # narrowing for mypy
+    assert client_id and client_secret  # narrowing for mypy
 
+    funnel_plan: dict[str, Any] | None = None
     if not code:
+        local_port = funnel.DEFAULT_LOCAL_PORT
+        if listen:
+            try:
+                if redirect_uri:
+                    https_port, mount_path, local_port = _funnel_target_from_uri(redirect_uri)
+                    funnel_plan = funnel.enable_callback_funnel(
+                        https_port=https_port,
+                        local_port=local_port,
+                        path=mount_path,
+                        force=force,
+                    )
+                else:
+                    funnel_plan = funnel.enable_callback_funnel(force=force)
+                    redirect_uri = funnel_plan["callback_url"]
+                    local_port = funnel_plan["local_port"]
+                    click.echo(
+                        f"SNAPCHAT_REDIRECT_URI is not set; using the Tailscale funnel "
+                        f"callback {redirect_uri}. It must be registered as the redirect "
+                        f"URI on the Snap OAuth app, and belongs in the env file so "
+                        f"future refreshes agree.",
+                        err=True,
+                    )
+            except (funnel.TailscaleError, ValueError) as e:
+                _bail(f"--listen setup failed: {e}")
+                return
+            state = state or secrets.token_urlsafe(16)
+
+        assert redirect_uri
         url = build_authorize_url(client_id, redirect_uri, scope, state)
         click.echo("\n1. Open this URL in a browser, sign in, and approve access:\n", err=True)
         click.echo(f"   {url}\n", err=True)
-        click.echo(
-            "2. After approval, Snap redirects to your redirect URI with `?code=...`. "
-            "Paste that code value below.\n",
-            err=True,
-        )
-        code = click.prompt("Authorization code", type=str)
+        if listen:
+            click.echo(
+                f"2. Waiting up to {listen_timeout}s for Snap to redirect to "
+                f"{redirect_uri} ...\n",
+                err=True,
+            )
+            try:
+                captured = funnel.wait_for_code(
+                    local_port, expected_state=state, timeout=float(listen_timeout)
+                )
+            except TimeoutError as e:
+                _bail(str(e), exit_code=1)
+                return
+            finally:
+                if funnel_plan and funnel_plan.get("changed") and not keep_funnel:
+                    try:
+                        funnel.disable_callback_funnel(
+                            https_port=funnel_plan["https_port"], path=funnel_plan["path"]
+                        )
+                    except funnel.TailscaleError as e:
+                        click.echo(f"Warning: funnel teardown failed: {e}", err=True)
+            code = captured["code"]
+        else:
+            click.echo(
+                "2. After approval, Snap redirects to your redirect URI with `?code=...`. "
+                "Paste that code value below.\n",
+                err=True,
+            )
+            code = click.prompt("Authorization code", type=str)
+
+    assert redirect_uri  # non-listen paths validated the env var above
 
     try:
         payload = exchange_code(client_id, client_secret, redirect_uri, code)
@@ -235,6 +355,83 @@ def auth_login(ctx: click.Context, scope: str | None, state: str | None, code: s
         },
         ctx.obj["human"],
     )
+
+
+@auth.command("callback-url")
+@click.option(
+    "--https-port",
+    default=funnel.DEFAULT_HTTPS_PORT,
+    show_default=True,
+    help="Public HTTPS port on the tailnet node (443/8443/10000 work on all tailnets)",
+)
+@click.option(
+    "--local-port",
+    default=funnel.DEFAULT_LOCAL_PORT,
+    show_default=True,
+    help="Loopback port the funnel proxies to; `auth login --listen` binds here",
+)
+@click.option(
+    "--path",
+    "mount_path",
+    default=funnel.DEFAULT_CALLBACK_PATH,
+    show_default=True,
+    help="URL path for the callback route",
+)
+@click.option("--check", is_flag=True, default=False, help="Inspect only; change nothing")
+@click.option("--off", is_flag=True, default=False, help="Tear down the callback route")
+@click.option(
+    "--force",
+    is_flag=True,
+    default=False,
+    help="Enable funnel even if the port already serves other paths (exposes them publicly)",
+)
+@click.pass_context
+def auth_callback_url(
+    ctx: click.Context,
+    https_port: int,
+    local_port: int,
+    mount_path: str,
+    check: bool,
+    off: bool,
+    force: bool,
+) -> None:
+    """Provision a public HTTPS OAuth redirect URI via Tailscale Funnel.
+
+    Publishes https://<node>.ts.net:<port><path> -> 127.0.0.1:<local-port> and
+    prints the URL to register as the redirect URI on the Snap OAuth app
+    (Snap Business Manager -> Business Details -> Apps). Then set it as
+    SNAPCHAT_REDIRECT_URI in the env file and run `auth login --listen`.
+    """
+    account_key: str = ctx.obj["account"]
+    try:
+        if off:
+            result = funnel.disable_callback_funnel(https_port=https_port, path=mount_path)
+            audit_log("auth.callback_url.off", account_key, {"https_port": https_port, "path": mount_path}, "ok", {})
+        elif check:
+            result = funnel.plan_callback(
+                https_port=https_port, local_port=local_port, path=mount_path
+            )
+        else:
+            result = funnel.enable_callback_funnel(
+                https_port=https_port, local_port=local_port, path=mount_path, force=force
+            )
+            audit_log(
+                "auth.callback_url.enable",
+                account_key,
+                {"https_port": https_port, "local_port": local_port, "path": mount_path},
+                "ok",
+                {"callback_url": result["callback_url"], "changed": result.get("changed")},
+            )
+            result["register_at"] = (
+                "Snap Business Manager -> Business Details -> Apps -> your OAuth app "
+                "-> set this callback_url as the Redirect URI"
+            )
+            result["env_var"] = f"SNAPCHAT_REDIRECT_URI={result['callback_url']}"
+            result["next"] = "snapchat-ads auth login --listen"
+    except funnel.TailscaleError as e:
+        _bail(str(e))
+        return
+    emit(result, ctx.obj["human"])
 
 
 @auth.command("exchange")

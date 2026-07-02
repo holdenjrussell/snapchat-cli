@@ -30,6 +30,7 @@ Claude walks the full setup with verification gates: CLI install + OAuth → opt
 
 - Python ≥ 3.11 and [uv](https://docs.astral.sh/uv/)
 - A Snap Business app (client ID/secret) with Marketing API scope
+- An HTTPS OAuth redirect URI — with [Tailscale](https://tailscale.com) installed, `snapchat-ads auth callback-url` provisions one automatically via Funnel (you register the printed URL on the Snap app), and `auth login --listen` captures the authorization code hands-free
 - A Postgres database (Neon/Supabase/RDS/local) for the warehouse
 - A Slack bot token (`chat:write`) for reports
 - Optional: a Meta warehouse (`meta_daily_metrics`) or the companion meta-ads CLI, if you want the weekly Meta-winners bridge

@@ -4,6 +4,8 @@ This repo is a self-contained Snapchat ads operations stack: a full Marketing-AP
 
 **First time on a machine?** Run `/setup-snapchat-cli` (defined in `.claude/commands/`) — it walks OAuth, warehouse build, docs index, Slack reports, campaigns, and the optimizer schedules with verification gates.
 
+**OAuth redirect URI:** don't ask the user to invent one. If `tailscale` is on PATH, provision it: `snapchat-ads auth callback-url --check` (the `conflicts` map must be empty — never `--force`, funnel exposure is per-port), then `snapchat-ads auth callback-url`, hand the printed `callback_url` to the user to register on the Snap app (Business Details → Apps → Redirect URI), write it to `SNAPCHAT_REDIRECT_URI` in the env file, and log in with `auth login --listen` (captures the `code=` redirect automatically, state-validated, then tears the route down).
+
 ## Repo map
 
 | Path | What it is |

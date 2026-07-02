@@ -18,34 +18,50 @@ uv run snapchat-ads --help
 ## Auth bootstrap
 
 1. Register a Snap Business app at https://business.snapchat.com -> Apps. Note the
-   client ID and secret. Add a redirect URI (localhost is fine for CLI use).
-2. Fill in `~/.config/snapchat-ads-cli/.env` (or export the vars in your shell) —
+   client ID and secret.
+2. Get an HTTPS redirect URI (Snap requires one). On a machine running
+   [Tailscale](https://tailscale.com) the CLI provisions it for you via Funnel:
+   ```bash
+   uv run snapchat-ads auth callback-url --check   # inspect; conflicts must be empty
+   uv run snapchat-ads auth callback-url           # publish; prints callback_url
+   ```
+   Register the printed `callback_url` as the Redirect URI on the Snap app
+   (Business Details -> Apps -> your app) — the value must match exactly.
+   If `conflicts` is non-empty, pick another port (`--https-port 443|8443|10000`)
+   rather than `--force`: funnel exposure is per-port, so forcing would publish
+   every other path served on that port to the internet. `--off` tears the
+   route down. Without Tailscale, use any HTTPS URL you control.
+3. Fill in `~/.config/snapchat-ads-cli/.env` (or export the vars in your shell) —
    template at the repo root `.env.example`. Required for first login:
    `SNAPCHAT_CLIENT_ID`, `SNAPCHAT_CLIENT_SECRET`, `SNAPCHAT_REDIRECT_URI`.
-3. Create the local account config:
+4. Create the local account config:
    ```bash
    uv run snapchat-ads init
    ```
    This writes `~/.config/snapchat-ads-cli/accounts.toml` with the `default` account.
-4. Run the OAuth flow:
+5. Run the OAuth flow:
    ```bash
-   uv run snapchat-ads --account default auth login
+   uv run snapchat-ads --account default auth login --listen
    ```
-   Open the printed URL, sign in, approve, and paste the `code=` value back to
-   the prompt. The CLI exchanges it and persists access + refresh tokens.
-5. Verify:
+   Open the printed URL, sign in, and approve. With `--listen`, the funnel
+   route delivers the `code=` redirect straight to a one-shot local listener
+   (state-validated), the CLI exchanges it, persists access + refresh tokens,
+   and tears down any funnel route it created (`--keep-funnel` to keep it).
+   Without Tailscale, run plain `auth login` and paste the `code=` value from
+   the redirect URL at the prompt.
+6. Verify:
    ```bash
    uv run snapchat-ads --human auth status
    uv run snapchat-ads --human org list
    ```
-6. Fill in `organization_id`, `ad_account_id`, and (later) `pixel_id` in
+7. Fill in `organization_id`, `ad_account_id`, and (later) `pixel_id` in
    `~/.config/snapchat-ads-cli/accounts.toml` so subsequent commands don't need
    the IDs as arguments.
 
 ## Command surface
 
 ```text
-auth              login, exchange, refresh, status, revoke
+auth              login, callback-url, exchange, refresh, status, revoke
 account           list, info, health-check, phone-numbers, assign-role, remove-role
 org               list, get, list-accounts, members, member-roles, roles,
                   funding-sources, billing-centers, create-account, update-account,

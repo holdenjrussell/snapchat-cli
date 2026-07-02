@@ -28,7 +28,7 @@ uv run --directory cli snapchat-ads --account default --human <group> <command> 
 | -------------------------- | ------------------------------------------------------------------- | ------------------------ |
 | `SNAPCHAT_CLIENT_ID`       | OAuth client ID from Snap Business Manager -> Apps                  | manual                   |
 | `SNAPCHAT_CLIENT_SECRET`   | OAuth client secret                                                 | manual (sensitive)       |
-| `SNAPCHAT_REDIRECT_URI`    | Registered redirect URI (`https://localhost:8080/callback` is fine) | manual                   |
+| `SNAPCHAT_REDIRECT_URI`    | Registered HTTPS redirect URI (`auth callback-url` provisions one via Tailscale Funnel) | manual          |
 | `SNAPCHAT_ACCESS_TOKEN`    | Bearer access token (1-hour TTL)                                    | written by `auth login`  |
 | `SNAPCHAT_REFRESH_TOKEN`   | Long-lived refresh token                                            | written by `auth login`  |
 | `SNAPCHAT_ORGANIZATION_ID` | Organization ID (from `org list`)                                   | manual after first login |
@@ -45,22 +45,31 @@ All env vars live in `~/.config/snapchat-ads-cli/.env` (copied from the repo's `
 # 1. Fill in client creds
 mkdir -p ~/.config/snapchat-ads-cli
 cp skills/snapchat-ads/.env.example ~/.config/snapchat-ads-cli/.env
-$EDITOR ~/.config/snapchat-ads-cli/.env   # set CLIENT_ID, CLIENT_SECRET, REDIRECT_URI
+$EDITOR ~/.config/snapchat-ads-cli/.env   # set CLIENT_ID, CLIENT_SECRET
 
-# 2. Initialize accounts.toml
+# 2. Provision the HTTPS redirect URI (machine has Tailscale? use Funnel)
+uv run --directory cli snapchat-ads auth callback-url --check   # `conflicts` must be {} — else try --https-port 443/10000; never --force
+uv run --directory cli snapchat-ads auth callback-url           # prints callback_url
+# Give callback_url to the user -> they register it as the Redirect URI on the
+# Snap OAuth app (Business Manager -> Business Details -> Apps). Then:
+$EDITOR ~/.config/snapchat-ads-cli/.env   # set SNAPCHAT_REDIRECT_URI=<callback_url>
+# No Tailscale: ask the user for an HTTPS redirect URI they control instead.
+
+# 3. Initialize accounts.toml
 uv run --directory cli snapchat-ads init
 
-# 3. Run OAuth code-grant flow
-uv run --directory cli snapchat-ads --account default auth login
+# 4. Run OAuth code-grant flow (auto-captures the code via the funnel)
+uv run --directory cli snapchat-ads --account default auth login --listen
 # CLI prints an authorize URL. Open in a browser, sign in, approve.
-# Snap redirects with ?code=...   Paste the code value back at the prompt.
+# The funnel delivers ?code=... to the CLI's one-shot listener (state-checked).
+# Manual fallback (no Tailscale): `auth login` and paste the code at the prompt.
 
-# 4. Verify + discover IDs
+# 5. Verify + discover IDs
 uv run --directory cli snapchat-ads --human auth status
 uv run --directory cli snapchat-ads --human org list
 uv run --directory cli snapchat-ads --human org list-accounts <ORG_ID>
 
-# 5. Edit accounts.toml -- fill in organization_id, ad_account_id, pixel_id
+# 6. Edit accounts.toml -- fill in organization_id, ad_account_id, pixel_id
 $EDITOR ~/.config/snapchat-ads-cli/accounts.toml
 ```
 
