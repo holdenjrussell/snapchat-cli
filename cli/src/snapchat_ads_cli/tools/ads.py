@@ -68,18 +68,17 @@ def get_ads_by_ids(
     ad_account_id: str,
     ad_ids: list[str],
 ) -> dict[str, Any]:
-    body, _ = client.post(
-        f"adaccounts/{ad_account_id}/get_ads_by_ids",
-        json_body={"ad_ids": ad_ids},
+    from . import _bulk
+
+    return _bulk.bulk_get_by_ids(
+        client,
+        path=f"adaccounts/{ad_account_id}/get_ads_by_ids",
+        ids=ad_ids,
+        id_array_key="entity_ids",
+        id_item_key="id",
+        response_array_key="ads",
+        inner_singular="ad",
     )
-    items = body.get("ads") or []
-    flat = []
-    for e in items:
-        if isinstance(e, dict) and "ad" in e:
-            flat.append(e["ad"])
-        elif isinstance(e, dict):
-            flat.append(e)
-    return {"ads": flat, "count": len(flat)}
 
 
 def create_ad(

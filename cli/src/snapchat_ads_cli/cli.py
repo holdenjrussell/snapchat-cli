@@ -1051,14 +1051,7 @@ def ad_get_by_ids(
         return
 
     def _fn(client, account, config):
-        return _bulk.bulk_get_by_ids(
-            client,
-            path=f"adaccounts/{account.ad_account_id}/get_ads_by_ids",
-            ids=ids,
-            id_array_key="ad_ids",
-            response_array_key="ads",
-            inner_singular="ad",
-        )
+        return ads_mod.get_ads_by_ids(client, account.ad_account_id, ids)
 
     _run(ctx, _fn)
 

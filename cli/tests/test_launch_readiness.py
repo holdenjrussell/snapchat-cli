@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from snapchat_ads_cli import config as config_mod
-from snapchat_ads_cli.tools import ads, adsquads, creatives, media, reports
+from snapchat_ads_cli.tools import _bulk, ads, adsquads, creatives, media, reports
 
 
 class FakeClient:
@@ -40,6 +40,34 @@ class FakeClient:
         if self.post_responses:
             return self.post_responses.pop(0), {}
         return {}, {}
+
+
+class BatchGetTests(unittest.TestCase):
+    def test_ad_get_by_ids_uses_documented_entity_ids_objects(self):
+        client = FakeClient()
+        client.post_responses = [
+            {"ads": [{"ad": {"id": "ad1"}}, {"ad": {"id": "ad2"}}]}
+        ]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ids_file = Path(tmp) / "ad-ids.json"
+            ids_file.write_text('["ad1", "ad2"]', encoding="utf-8")
+            ids = _bulk.load_ids(file_path=str(ids_file))
+
+        result = ads.get_ads_by_ids(client, "acct1", ids)
+
+        self.assertEqual(
+            client.calls[0],
+            (
+                "POST",
+                "adaccounts/acct1/get_ads_by_ids",
+                {"entity_ids": [{"id": "ad1"}, {"id": "ad2"}]},
+                None,
+            ),
+        )
+        self.assertEqual(result["ads"], [{"id": "ad1"}, {"id": "ad2"}])
+        self.assertEqual(result["count"], 2)
+        self.assertEqual(result["failed_batches"], [])
 
 
 class ReportingTests(unittest.TestCase):

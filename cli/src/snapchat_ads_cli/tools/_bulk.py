@@ -153,15 +153,23 @@ def bulk_get_by_ids(
     ids: list[str],
     id_array_key: str,
     response_array_key: str,
+    id_item_key: str | None = None,
     inner_singular: str | None = None,
     chunk_size: int = GETBYIDS_CHUNK,
 ) -> dict[str, Any]:
-    """POST batches of IDs to a `get_*_by_ids` endpoint and flatten responses."""
+    """POST batches of IDs to a `get_*_by_ids` endpoint and flatten responses.
+
+    Snap's ad batch endpoint uses ``entity_ids: [{"id": "..."}]``.
+    ``id_item_key`` keeps the helper usable for any legacy scalar-ID payload.
+    """
     flat: list[dict[str, Any]] = []
     failed_batches: list[dict[str, Any]] = []
     for c in chunk(ids, chunk_size):
         try:
-            body, _ = client.post(path, json_body={id_array_key: c})
+            payload_ids: list[Any] = (
+                [{id_item_key: value} for value in c] if id_item_key else c
+            )
+            body, _ = client.post(path, json_body={id_array_key: payload_ids})
         except SnapApiError as e:
             failed_batches.append(e.to_dict())
             continue
