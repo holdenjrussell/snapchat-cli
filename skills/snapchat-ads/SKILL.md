@@ -151,6 +151,20 @@ init                                            # write default accounts.toml
 
 ---
 
+## Northbeam tagging (MANDATORY)
+
+Every Snap landing URL must carry Northbeam's parameters or the ad's revenue is invisible to Northbeam (the ad still delivers and nothing errors):
+
+```
+nbt=nb:snapchat:{{site_source_name}}:{{campaign.id}}:{{adSet.id}}:{{ad.id}}&utm_source=snapchat&utm_campaign={{campaign.id}}&utm_content={{adSet.name}}
+```
+
+- `creative create-web-view` and `creative create-collection` append it to the URL / fallback URL and set `url_macro_parameters` by default (`NORTHBEAM_SNAP_URL_PARAMS` in `tools/creatives.py`). Pass `--no-northbeam-tags` only when you know why.
+- Northbeam's own auto-append shows up on a creative as `utm_autofix_permission: OPT_IN` + `url_macro_parameters`; creatives it never touched have neither. Audit: `creative list` and grep the JSON for `nbt=` per ad's `creative_id`.
+- Retag an existing creative in place with `creative update <id> --fields-json '{"web_view_properties":{...full object, tagged url...},"url_macro_parameters":"<params>"}' --execute` — the update is a shallow merge, so pass the whole `web_view_properties` (or `collection_properties`) object. Snap flips `review_status` to PENDING_REVIEW for a few minutes, then back to APPROVED; ads keep their status.
+
+---
+
 ## Safety rules (ALWAYS FOLLOW)
 
 1. **Confirm before any write.** All mutations default to preview. Show the user the proposed change and require explicit approval before re-running with `--execute`.

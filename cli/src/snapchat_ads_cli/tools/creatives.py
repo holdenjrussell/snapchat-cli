@@ -40,6 +40,25 @@ def _apply_common_optional(
     return payload
 
 
+# Northbeam attribution parameters for Snapchat (Settings -> UTM guide / docs.northbeam.io
+# "tracking-for-snapchat-ads"). Every web-view URL and collection fallback URL created through
+# this CLI carries them by default so Northbeam can stitch campaign / ad squad / ad ids into
+# Shopify attribution. Without them the ad delivers normally but its revenue is invisible to
+# Northbeam. Pass northbeam_tags=False (CLI: --no-northbeam-tags) only when you know why.
+NORTHBEAM_SNAP_URL_PARAMS = (
+    "nbt=nb:snapchat:{{site_source_name}}:{{campaign.id}}:{{adSet.id}}:{{ad.id}}"
+    "&utm_source=snapchat&utm_campaign={{campaign.id}}&utm_content={{adSet.name}}"
+)
+
+
+def with_northbeam_params(url: str | None) -> str | None:
+    """Append the Northbeam Snapchat params to *url* unless an ``nbt=`` param is already present."""
+    if not url or "nbt=" in url:
+        return url
+    sep = "&" if "?" in url else "?"
+    return f"{url}{sep}{NORTHBEAM_SNAP_URL_PARAMS}"
+
+
 def _merge_update_payload(
     current: dict[str, Any],
     fields: dict[str, Any],
@@ -278,10 +297,11 @@ def create_web_view(
     cta_color_display_mode: str | None = None,
     chat_properties: dict[str, Any] | None = None,
     extra: dict[str, Any] | None = None,
+    northbeam_tags: bool = True,
     execute: bool = False,
 ) -> dict[str, Any]:
     props: dict[str, Any] = {
-        "url": url,
+        "url": with_northbeam_params(url) if northbeam_tags else url,
         "allow_snap_javascript_sdk": allow_snap_javascript_sdk,
         "use_immersive_mode": use_immersive_mode,
         "block_preload": block_preload,
@@ -298,6 +318,8 @@ def create_web_view(
         "top_snap_media_id": top_snap_media_id,
         "web_view_properties": props,
     }
+    if northbeam_tags:
+        payload["url_macro_parameters"] = NORTHBEAM_SNAP_URL_PARAMS
     _apply_common_optional(
         payload,
         profile_id=profile_id,
@@ -422,6 +444,7 @@ def create_collection(
     call_to_action: str | None = None,
     cta_color_display_mode: str | None = None,
     extra: dict[str, Any] | None = None,
+    northbeam_tags: bool = True,
     execute: bool = False,
 ) -> dict[str, Any]:
     props: dict[str, Any] = {
@@ -429,7 +452,9 @@ def create_collection(
         "default_fallback_interaction_type": default_fallback_interaction_type,
     }
     if fallback_url:
-        props["web_view_properties"] = {"url": fallback_url}
+        props["web_view_properties"] = {
+            "url": with_northbeam_params(fallback_url) if northbeam_tags else fallback_url
+        }
 
     payload: dict[str, Any] = {
         "name": name,
@@ -440,6 +465,8 @@ def create_collection(
         "top_snap_media_id": top_snap_media_id,
         "collection_properties": props,
     }
+    if northbeam_tags:
+        payload["url_macro_parameters"] = NORTHBEAM_SNAP_URL_PARAMS
     _apply_common_optional(
         payload,
         profile_id=profile_id,

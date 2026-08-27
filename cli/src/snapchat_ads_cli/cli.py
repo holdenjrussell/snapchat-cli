@@ -3056,6 +3056,10 @@ def creative_app_install(
 @click.option("--immersive", is_flag=True)
 @click.option("--block-preload", is_flag=True)
 @click.option("--deep-link-urls", default=None, help="Comma-separated list")
+@click.option(
+    "--northbeam-tags/--no-northbeam-tags", default=True,
+    help="Append the Northbeam nbt/utm params to the URL and set url_macro_parameters (default on)",
+)
 @click.pass_context
 def creative_web_view(
     ctx: click.Context,
@@ -3075,6 +3079,7 @@ def creative_web_view(
     immersive: bool,
     block_preload: bool,
     deep_link_urls: str | None,
+    northbeam_tags: bool,
 ) -> None:
     extra = _json_arg(extra_json)
     chat_properties = _json_arg(chat_properties_json)
@@ -3090,7 +3095,8 @@ def creative_web_view(
             deep_link_urls=dl_list, shareable=shareable,
             call_to_action=call_to_action, profile_id=profile_id,
             cta_color_display_mode=cta_color_display_mode,
-            chat_properties=chat_properties, extra=extra, execute=execute,
+            chat_properties=chat_properties, extra=extra,
+            northbeam_tags=northbeam_tags, execute=execute,
         )
         if execute:
             audit_log("creative.web_view.create", ctx.obj["account"], {"name": name}, "ok")
@@ -3197,6 +3203,10 @@ def creative_ad_to_lens(
 @click.option("--interaction-zone-id", required=True)
 @click.option("--default-fallback-type", default="WEB_VIEW")
 @click.option("--fallback-url", default=None)
+@click.option(
+    "--northbeam-tags/--no-northbeam-tags", default=True,
+    help="Append the Northbeam nbt/utm params to the fallback URL and set url_macro_parameters (default on)",
+)
 @click.pass_context
 def creative_collection(
     ctx: click.Context,
@@ -3214,6 +3224,7 @@ def creative_collection(
     interaction_zone_id: str,
     default_fallback_type: str,
     fallback_url: str | None,
+    northbeam_tags: bool,
 ) -> None:
     extra = _json_arg(extra_json)
 
@@ -3227,7 +3238,7 @@ def creative_collection(
             fallback_url=fallback_url, shareable=shareable,
             profile_id=profile_id, call_to_action=call_to_action,
             cta_color_display_mode=cta_color_display_mode,
-            extra=extra, execute=execute,
+            extra=extra, northbeam_tags=northbeam_tags, execute=execute,
         )
         if execute:
             audit_log("creative.collection.create", ctx.obj["account"], {"name": name}, "ok")

@@ -212,7 +212,12 @@ class CreativeBuilderTests(unittest.TestCase):
         )
 
         proposed = result["proposed"]
-        self.assertEqual(proposed["web_view_properties"]["url"], "https://example.com/products/x")
+        # Northbeam params are appended by default (see creatives.NORTHBEAM_SNAP_URL_PARAMS).
+        self.assertEqual(
+            proposed["web_view_properties"]["url"],
+            "https://example.com/products/x?" + creatives.NORTHBEAM_SNAP_URL_PARAMS,
+        )
+        self.assertEqual(proposed["url_macro_parameters"], creatives.NORTHBEAM_SNAP_URL_PARAMS)
         self.assertEqual(proposed["call_to_action"], "SHOP_NOW")
         self.assertEqual(proposed["profile_properties"], {"profile_id": "profile1"})
 
