@@ -78,12 +78,41 @@ def _run_cli_json(*args: str, timeout: int = 120) -> dict[str, Any]:
     return payload
 
 
-def _window_bounds(days: int, now: datetime.datetime | None = None) -> tuple[str, str]:
-    """UTC midnight-aligned [start, end) window covering the trailing `days` days."""
-    end = (now or datetime.datetime.now(datetime.timezone.utc)).replace(
+def _account_tz() -> datetime.tzinfo:
+    """Timezone of the Snap ad account (SNAPCHAT_ACCOUNT_TIMEZONE, default UTC).
+
+    Snap rejects DAY-granularity stats unless start/end sit on the *ad account's*
+    local midnight (error E1008), so the window must be built in that zone,
+    not in UTC. Set SNAPCHAT_ACCOUNT_TIMEZONE in the env file to the value of
+    `adaccount.timezone` (e.g. America/Toronto).
+    """
+    name = os.environ.get("SNAPCHAT_ACCOUNT_TIMEZONE", "UTC")
+    try:
+        from zoneinfo import ZoneInfo
+        return ZoneInfo(name)
+    except Exception:  # pragma: no cover - bad tz name falls back to UTC
+        print(f"[sync_snapchat_daily] unknown SNAPCHAT_ACCOUNT_TIMEZONE={name!r}; using UTC", file=sys.stderr)
+        return datetime.timezone.utc
+
+
+def _window_bounds(
+    days: int, now: datetime.datetime | None = None, include_today: bool = True
+) -> tuple[str, str]:
+    """Account-local midnight-aligned [start, end) window: the trailing `days`
+    closed days, plus today so far unless `include_today` is False.
+
+    Today is included because the 437 dashboard P&L reads this table: without
+    it the current day's column carried no Snapchat spend and overstated Net
+    Profit by whatever Snap had spent since midnight. Today's row is partial
+    and is overwritten by every run until the day closes."""
+    tz = _account_tz()
+    today = (now or datetime.datetime.now(tz)).astimezone(tz).replace(
         hour=0, minute=0, second=0, microsecond=0
     )
-    start = end - datetime.timedelta(days=days)
+    start = (today - datetime.timedelta(days=days)).replace(hour=0, minute=0, second=0, microsecond=0)
+    end = today
+    if include_today:
+        end = (today + datetime.timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
     return start.isoformat(), end.isoformat()
 
 
@@ -144,12 +173,20 @@ def extract_daily_ad_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
     """Normalize a Snap `report stats` envelope (DAY granularity, ad
     breakdown) into a flat list of per-day, per-ad raw stat dicts.
 
-    Handles both shapes seen from the stats endpoint:
-      - `timeseries_stats`: DAY/HOUR granularity. Each top-level block wraps
-        a `timeseries_stat` with a `timeseries` list of per-bucket entries
-        (`start_time`/`end_time`/`stats`/`breakdown_stats`).
+    Handles the shapes seen from the stats endpoint:
+      - `timeseries_stats` with `breakdown=ad` (what this sync requests):
+        the block's `timeseries_stat` carries `breakdown_stats.ad[]`, and each
+        ad row holds its OWN `timeseries` list of per-day entries
+        (`start_time`/`end_time`/`stats`). The day comes from each entry.
+      - `timeseries_stats` with per-bucket breakdowns: `timeseries_stat` has a
+        `timeseries` list whose entries each carry `breakdown_stats`.
       - `total_stats`: TOTAL granularity fallback. Each block wraps a
         `total_stat` with `breakdown_stats` directly (no per-day buckets).
+
+    Until 2026-09-29 only the second shape was read, so every live payload
+    (the first shape) stamped each ad with the window's start date and read
+    spend from the ad row itself, which has none: the table held one
+    zero-spend row per ad per run while 437 spent ~USD 2,200/day on Snap.
     """
     rows: list[dict[str, Any]] = []
 
@@ -161,8 +198,22 @@ def extract_daily_ad_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
         for ad_row in ad_rows:
             if not isinstance(ad_row, dict):
                 continue
+            ad_id = ad_row.get("id")
+            per_day = ad_row.get("timeseries")
+            if isinstance(per_day, list):
+                if not ad_id:
+                    continue
+                for day_entry in per_day:
+                    if not isinstance(day_entry, dict):
+                        continue
+                    parsed = _parse_iso(day_entry.get("start_time"))
+                    day_stats = day_entry.get("stats")
+                    if parsed is None or not isinstance(day_stats, dict):
+                        continue
+                    rows.append({"date": parsed.date().isoformat(), "ad_id": str(ad_id), "stats": day_stats})
+                continue
             stats = ad_row.get("stats") if isinstance(ad_row.get("stats"), dict) else ad_row
-            ad_id = ad_row.get("id") or stats.get("id")
+            ad_id = ad_id or stats.get("id")
             if not ad_id:
                 continue
             rows.append({"date": date_str, "ad_id": str(ad_id), "stats": stats})
@@ -200,8 +251,22 @@ def extract_daily_ad_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _unwrap_entity_list(payload: dict[str, Any], key: str) -> list[dict[str, Any]]:
+    """Entities from a list envelope.
+
+    Snap wraps each one as {"sub_request_status": ..., "<entity>": {...}}
+    (e.g. "ad", "adsquad", "campaign"); unwrap it so lookups by "id" work.
+    """
     items = payload.get(key) or []
-    return [item for item in items if isinstance(item, dict)]
+    out: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        if "id" not in item:
+            inner = [v for k, v in item.items() if k != "sub_request_status" and isinstance(v, dict)]
+            if len(inner) == 1:
+                item = inner[0]
+        out.append(item)
+    return out
 
 
 def fetch_entity_maps() -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
@@ -321,10 +386,12 @@ def main() -> None:
     parser.add_argument("--days", type=int, default=7, help="How many trailing days to pull (default 7).")
     parser.add_argument("--dry-run", action="store_true", help="Print sample rows + counts; skip all DB writes.")
     parser.add_argument("--apply-schema", action="store_true", help="Execute schema.sql before upserting.")
+    parser.add_argument("--closed-days-only", action="store_true",
+                        help="End the window at today's midnight (omit today's partial day).")
     parser.add_argument("--database-url", default=None, help="Override the DATABASE_URL environment variable.")
     args = parser.parse_args()
 
-    start_iso, end_iso = _window_bounds(args.days)
+    start_iso, end_iso = _window_bounds(args.days, include_today=not args.closed_days_only)
 
     print(f"[sync_snapchat_daily] account={_snapchat_account()} window={start_iso}..{end_iso}", file=sys.stderr)
 
@@ -337,6 +404,9 @@ def main() -> None:
             "--end-time", end_iso,
             "--fields", ",".join(STATS_FIELDS),
             "--breakdown", "ad",
+            "--swipe-up-attribution-window", "7_DAY",
+            "--view-attribution-window", "none",
+            "--params-json", '{"engaged_view_attribution_window":"none"}',
             "--include-empty",
         )
         daily_rows = extract_daily_ad_rows(stats_payload)

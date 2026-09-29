@@ -56,6 +56,15 @@ CREATE INDEX        snapchat_ad_daily_date_idx      ON snapchat_ad_daily_metrics
 - The sync script re-pulls the trailing window on every run (default 7
   days), so a daily cron naturally "catches up" late-attributed
   conversions without any special backfill logic.
+- Each run also pulls **today so far** (a partial row, overwritten by every
+  run until the day closes) unless `--closed-days-only` is passed. On the 437
+  box the timer runs hourly at :40 because the dashboard P&L reads today's
+  spend from this table.
+- With `breakdown=ad`, Snap nests each day under
+  `breakdown_stats.ad[].timeseries[]`; the parser reads the day from each
+  entry. Before 2026-09-29 it did not, and every row landed on the window's
+  start date with zero spend. `SUM(spend)` per day should equal the
+  `ad_account` spend from `report stats` to the cent.
 - There is no built-in freshness/watermark table in this minimal package.
   If you need one, the standard pattern is a `sync_watermarks`-style table
   with `(source, resource, watermark_at, last_run_at, last_status,
