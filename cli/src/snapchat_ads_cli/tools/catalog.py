@@ -109,13 +109,64 @@ def update_product_set(
     return body
 
 
+# Snap's V2 renderer; the API requires both URLs on a new dynamic template.
+DYNAMIC_TEMPLATE_RENDERER_URL = (
+    "https://ads-interfaces.sc-cdn.net/adformats/templates/V2/index.html"
+)
+
+
 def list_dynamic_templates(
-    client: SnapchatApiClient, catalog_id: str
+    client: SnapchatApiClient, ad_account_id: str
 ) -> dict[str, Any]:
+    """GET /v1/adaccounts/{id}/dynamic_templates.
+
+    Dynamic templates belong to the ad account, not the catalog. The
+    catalog-scoped path this command used before answers E3003 ("Resource
+    can not be found") for every catalog.
+    """
     items = client.collect_paginated(
-        f"catalogs/{catalog_id}/dynamic_templates", "dynamic_templates"
+        f"adaccounts/{ad_account_id}/dynamic_templates", "dynamic_templates"
     )
-    return {"dynamic_templates": items, "count": len(items), "catalog_id": catalog_id}
+    return {
+        "dynamic_templates": items,
+        "count": len(items),
+        "ad_account_id": ad_account_id,
+    }
+
+
+def create_dynamic_template(
+    client: SnapchatApiClient,
+    ad_account_id: str,
+    account_label: str,
+    *,
+    payload: dict[str, Any],
+    execute: bool = False,
+) -> dict[str, Any]:
+    """POST /v1/adaccounts/{id}/dynamic_templates.
+
+    Snap requires name, layout (AUTOMATIC, FILL_WIDTH, FILL_HEIGHT, FIT,
+    HEADER or TILT; CAROUSEL or SLIDESHOW for Collection ads), text_fields
+    (at most two of title, price, descriptionTruncated, salePrice,
+    availability, brand, ...) and the two renderer URLs, which default to
+    Snap's V2 template.
+    """
+    from ..safety import format_preview
+
+    payload = dict(payload)
+    payload.setdefault("ad_account_id", ad_account_id)
+    payload.setdefault("ios_url", DYNAMIC_TEMPLATE_RENDERER_URL)
+    payload.setdefault("android_url", DYNAMIC_TEMPLATE_RENDERER_URL)
+    if not execute:
+        return format_preview(
+            f"create dynamic template '{payload.get('name', '?')}'",
+            account_label,
+            proposed_state=payload,
+        )
+    body, _ = client.post(
+        f"adaccounts/{ad_account_id}/dynamic_templates",
+        json_body={"dynamic_templates": [payload]},
+    )
+    return body
 
 
 def get_dynamic_template(

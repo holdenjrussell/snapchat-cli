@@ -2844,10 +2844,50 @@ def catalog_update_ps(
 
 
 @catalog.command("dynamic-templates")
-@click.argument("catalog_id")
+@click.argument("ad_account_id", required=False)
 @click.pass_context
-def catalog_dynamic_templates(ctx: click.Context, catalog_id: str) -> None:
-    _run(ctx, lambda c, a, cfg: catalog_mod.list_dynamic_templates(c, catalog_id))
+def catalog_dynamic_templates(ctx: click.Context, ad_account_id: str | None) -> None:
+    """List dynamic templates (ad-account scoped; defaults to the configured account)."""
+    _run(
+        ctx,
+        lambda c, a, cfg: catalog_mod.list_dynamic_templates(
+            c, ad_account_id or a.ad_account_id
+        ),
+    )
+
+
+@catalog.command("create-dynamic-template")
+@click.option(
+    "--payload-json",
+    required=True,
+    help='e.g. {"name":"Auto","layout":"AUTOMATIC","text_fields":["title","price"]}',
+)
+@click.option("--execute", is_flag=True)
+@click.pass_context
+def catalog_create_dynamic_template(
+    ctx: click.Context, payload_json: str, execute: bool
+) -> None:
+    """Create a dynamic template on the ad account (preview unless --execute)."""
+    payload = json.loads(payload_json)
+
+    def _fn(client, account, config):
+        result = catalog_mod.create_dynamic_template(
+            client,
+            account.ad_account_id,
+            ctx.obj["account"],
+            payload=payload,
+            execute=execute,
+        )
+        if execute:
+            audit_log(
+                "catalog.dynamic_template.create",
+                ctx.obj["account"],
+                {"name": payload.get("name")},
+                "ok",
+            )
+        return result
+
+    _run(ctx, _fn)
 
 
 @catalog.command("dynamic-template-get")

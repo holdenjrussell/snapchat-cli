@@ -93,7 +93,8 @@ report            stats, daily, hourly, top-ads, video, async-submit, async-stat
                   async-download, lead-gen-submit, lead-gen-status, lead-gen-download
 catalog           list, get, product-sets, product-set-get, create,
                   create-product-set, update-product-set, dynamic-templates,
-                  dynamic-template-get, feeds, feed-get, create-feed, delete-feed
+                  create-dynamic-template, dynamic-template-get, feeds, feed-get,
+                  create-feed, delete-feed
 creative-element  list, get, create, update, delete, bulk-create
 interaction-zone  list, get, create, update, delete, bulk-create
 mobileapp         list, get, create, ecid-status, custom-conversions
