@@ -14,6 +14,7 @@ scripts, three tables, and no framework dependency.
 | `sync_snapchat_entities.py` | Mirrors campaign/ad squad/ad state and records later field changes as `HUMAN_MANUAL`, `AGENT_API`, or `SNAP_SYSTEM`. Dry-run is the default. |
 | `attribution.py` | Reads the `SNAPCHAT_*_ATTRIBUTION_WINDOW` variables that fix the conversion lens for the sync and the hourly report. |
 | `query.py` | Single-file guarded read-only SQL runner. This is the contract downstream automation (an optimizer engine, a reporting bot, etc.) calls to read warehouse data. |
+| `refresh_catalog_feed.py` | Rewrites an integration-synced Snap catalog as a product-feed CSV (storefront links, smaller Shopify CDN images) and publishes only a complete read. Not a warehouse job; it lives here because it runs beside the sync. |
 | `table-map.md` | Full column reference, index/upsert-key documentation, and a query cookbook. |
 
 ## Prerequisites
