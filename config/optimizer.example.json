@@ -48,7 +48,15 @@
   "meta_winners": {
     "min_spend": 250.0,
     "min_roas": 1.5,
-    "lookback_days": 30
+    "lookback_days": 30,
+    "sql_template_file": "",
+    "database_url_env": "",
+    "search_schema": "public",
+    "attribution_windows": "{7d_click,1d_view}"
+  },
+  "landing_page_inventory": {
+    "database_url_env": "",
+    "search_schema": "public"
   },
   "cron": {
     "model": null,

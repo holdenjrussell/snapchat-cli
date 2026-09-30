@@ -336,3 +336,70 @@ class InventoryLpTest(unittest.TestCase):
         self.assertIn("product_b", support.LP_CHOICES)
         for choices in support.LP_CHOICES.values():
             self.assertEqual(len(choices), 2)
+
+
+# --- weekly Meta -> Snap bridge: winner and landing-page sources -------------
+
+def test_default_meta_winners_sql_reads_the_reference_layout():
+    sql = support._build_meta_winners_sql(support._PRODUCTS, {"lookback_days": 30})
+    assert "from meta_daily_metrics" in sql
+    assert "left join meta_creatives c" in sql
+    assert "then 'product_a'" in sql
+
+
+def test_meta_winners_template_fills_tokens_from_config(tmp_path):
+    template = tmp_path / "winners.sql"
+    template.write_text(
+        "select __PRODUCT_CASE__, ad_id from t\n"
+        "where d >= current_date - interval '__LOOKBACK_DAYS__ days'\n"
+        "  and attribution_windows = '__ATTRIBUTION_WINDOWS__'::text[]\n"
+        "  and (__SCOPED_PREDICATE__)\n"
+        "  and spend >= __MIN_SPEND__ and roas >= __MIN_ROAS__",
+        encoding="utf-8",
+    )
+    sql = support._build_meta_winners_sql(
+        support._PRODUCTS,
+        {"sql_template_file": str(template), "lookback_days": 14, "min_spend": 100, "min_roas": 2},
+    )
+    assert "interval '14 days'" in sql
+    assert "'{7d_click,1d_view}'::text[]" in sql
+    assert "spend >= 100.0 and roas >= 2.0" in sql
+    assert "like '%product a%'" in sql and "then 'product_b'" in sql
+    assert "__" not in sql
+
+
+def test_meta_winners_template_rejects_bad_attribution_and_unknown_tokens(tmp_path):
+    import pytest
+
+    template = tmp_path / "winners.sql"
+    template.write_text("select 1 where x = '__ATTRIBUTION_WINDOWS__'", encoding="utf-8")
+    with pytest.raises(ValueError, match="attribution_windows"):
+        support._build_meta_winners_sql(
+            support._PRODUCTS,
+            {"sql_template_file": str(template), "attribution_windows": "{7d_click}'; drop table x; --"},
+        )
+    template.write_text("select __TYPO_TOKEN__", encoding="utf-8")
+    with pytest.raises(ValueError, match="__TYPO_TOKEN__"):
+        support._build_meta_winners_sql(support._PRODUCTS, {"sql_template_file": str(template)})
+
+
+def test_bridge_query_defaults_to_public_search_schema_and_ambient_dsn():
+    argv, env = support._bridge_query("select 1", "why", {})
+    assert argv[-2:] == ["--warehouse-schema", "public"]
+    assert env is None
+
+
+def test_bridge_query_can_target_a_separate_meta_warehouse(monkeypatch):
+    import pytest
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql:///snap_warehouse")
+    monkeypatch.setenv("META_WAREHOUSE_URL", "postgresql:///meta_warehouse")
+    argv, env = support._bridge_query(
+        "select 1", "why", {"database_url_env": "META_WAREHOUSE_URL", "search_schema": "meta_ads"}
+    )
+    assert argv[-2:] == ["--warehouse-schema", "meta_ads"]
+    assert env["DATABASE_URL"] == "postgresql:///meta_warehouse"
+    assert os.environ["DATABASE_URL"] == "postgresql:///snap_warehouse"
+    monkeypatch.delenv("META_WAREHOUSE_URL")
+    with pytest.raises(RuntimeError, match="META_WAREHOUSE_URL is not set"):
+        support._bridge_query("select 1", "why", {"database_url_env": "META_WAREHOUSE_URL"})

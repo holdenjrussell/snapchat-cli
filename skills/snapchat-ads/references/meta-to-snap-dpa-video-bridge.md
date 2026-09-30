@@ -23,6 +23,32 @@ Snap read responses include fields that are not valid in create payloads. Do not
 
 Always send `placement_v2` explicitly on DPA ad squad create. The legacy `placement` field is deprecated and can read back as `UNSUPPORTED`; use `--placement-v2-json '{"config":"AUTOMATIC"}'` for automatic placements. If Snap UI returns `E21011` ("must have chat feed placement selected") while saving a lower-funnel ad set, verify the ad squad through the API with `return_placement_v2=true` and fix it to automatic placement before launch.
 
+## Where the Weekly Winners Come From
+
+`reports/snap_meta_winners_weekly_context.py` lists winner candidates through
+`warehouse/query.py` (read-only). By default it generates SQL over
+`meta_daily_metrics`, `meta_ads` and `meta_creatives` in the `public` schema of
+the Snap warehouse database. A Meta warehouse with another layout plugs in
+through `config/optimizer.json`:
+
+- `meta_winners.sql_template_file`: a brand-authored query returning
+  `product_type, ad_id, ad_name, spend, revenue, roas, purchases, last_date,
+  entity_creative_id, link_url`. The sync fills `__LOOKBACK_DAYS__`,
+  `__MIN_SPEND__`, `__MIN_ROAS__`, `__ATTRIBUTION_WINDOWS__`,
+  `__SCOPED_PREDICATE__` and `__PRODUCT_CASE__` (the last two match product
+  keywords against unqualified `ad_name`, `adset_name`, `campaign_name`), and
+  refuses any other double-underscore token.
+- `meta_winners.database_url_env`: name of an environment variable holding a
+  read-only DSN for the database the Meta tables live in (unset: `DATABASE_URL`).
+- `meta_winners.search_schema`: schema the query runs in (default `public`).
+- `meta_winners.attribution_windows`: the one Meta attribution setting to read,
+  e.g. `{7d_click,1d_view}`; name it when you report the candidates.
+- `landing_page_inventory.database_url_env` / `.search_schema`: the same for
+  the Shopify inventory lookup that picks each product's landing page.
+
+Spend and `min_spend` are in the Meta ad account's currency. The candidate
+list only proposes; the safety gate below still applies to every Snap write.
+
 ## Read Meta Winners
 
 ```bash

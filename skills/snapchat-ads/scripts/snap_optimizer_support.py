@@ -12,6 +12,7 @@ import datetime as dt
 import json
 import math
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -128,6 +129,68 @@ def _keyword_predicate(keywords: list[str]) -> str:
     return "(\n        " + "\n        or ".join(conditions) + "\n      )"
 
 
+def _product_filters(products: dict[str, dict[str, Any]]) -> tuple[str, str]:
+    """(scoped keyword predicate, product_type CASE) from configured products."""
+    all_keywords = {key: [str(kw).lower() for kw in (product.get("keywords") or [])] for key, product in products.items()}
+    product_keywords = [(key, kws) for key, kws in all_keywords.items() if kws]
+    scoped_predicate = "\n      or ".join(_keyword_predicate(kws) for _, kws in product_keywords) or "false"
+    case_lines = [f"    when {_keyword_predicate(kws)}\n      then '{_sql_escape(key)}'" for key, kws in product_keywords]
+    case_sql = "case\n" + "\n".join(case_lines) + "\n    else null\n  end as product_type"
+    return scoped_predicate, case_sql
+
+
+# Brand-authored winners SQL (meta_winners.sql_template_file) for a Meta
+# warehouse whose layout differs from meta_daily_metrics/meta_ads/
+# meta_creatives. It must return the generated query's columns: product_type,
+# ad_id, ad_name, spend, revenue, roas, purchases, last_date,
+# entity_creative_id, link_url. Tokens are filled from config; the keyword
+# predicate and product CASE reference unqualified ad_name/adset_name/
+# campaign_name columns.
+META_WINNERS_TEMPLATE_TOKENS = (
+    "__LOOKBACK_DAYS__", "__MIN_SPEND__", "__MIN_ROAS__",
+    "__SCOPED_PREDICATE__", "__PRODUCT_CASE__", "__ATTRIBUTION_WINDOWS__",
+)
+_ATTRIBUTION_WINDOWS_RE = re.compile(r"^\{[a-z0-9_]+(,[a-z0-9_]+)*\}$")
+
+
+def _read_sql_template(path_value: str) -> str:
+    path = Path(path_value).expanduser()
+    if not path.is_absolute():
+        path = REPO_ROOT / path
+    return path.read_text(encoding="utf-8")
+
+
+def _render_meta_winners_template(
+    template: str,
+    *,
+    lookback_days: int,
+    min_spend: float,
+    min_roas: float,
+    scoped_predicate: str,
+    product_case: str,
+    attribution_windows: str,
+) -> str:
+    if not _ATTRIBUTION_WINDOWS_RE.fullmatch(attribution_windows):
+        raise ValueError(
+            "meta_winners.attribution_windows must look like {7d_click,1d_view}"
+        )
+    values = {
+        "__LOOKBACK_DAYS__": str(int(lookback_days)),
+        "__MIN_SPEND__": repr(float(min_spend)),
+        "__MIN_ROAS__": repr(float(min_roas)),
+        "__SCOPED_PREDICATE__": scoped_predicate,
+        "__PRODUCT_CASE__": product_case,
+        "__ATTRIBUTION_WINDOWS__": attribution_windows,
+    }
+    rendered = template
+    for token, value in values.items():
+        rendered = rendered.replace(token, value)
+    unfilled = sorted(set(re.findall(r"__[A-Z][A-Z_]*__", rendered)))
+    if unfilled:
+        raise ValueError(f"meta winners SQL template has unknown tokens: {unfilled}")
+    return rendered.strip()
+
+
 def _build_meta_winners_sql(products: dict[str, dict[str, Any]], meta_winners_cfg: dict[str, Any]) -> str:
     """Generate the ad-level Meta winners SQL from configured products.
 
@@ -141,11 +204,18 @@ def _build_meta_winners_sql(products: dict[str, dict[str, Any]], meta_winners_cf
     min_spend = float(meta_winners_cfg.get("min_spend", 250.0))
     min_roas = float(meta_winners_cfg.get("min_roas", 1.5))
 
-    all_keywords = {key: [str(kw).lower() for kw in (product.get("keywords") or [])] for key, product in products.items()}
-    product_keywords = [(key, kws) for key, kws in all_keywords.items() if kws]
-    scoped_predicate = "\n      or ".join(_keyword_predicate(kws) for _, kws in product_keywords)
-    case_lines = [f"    when {_keyword_predicate(kws)}\n      then '{_sql_escape(key)}'" for key, kws in product_keywords]
-    case_sql = "case\n" + "\n".join(case_lines) + "\n    else null\n  end as product_type"
+    scoped_predicate, case_sql = _product_filters(products)
+    template_file = str(meta_winners_cfg.get("sql_template_file") or "").strip()
+    if template_file:
+        return _render_meta_winners_template(
+            _read_sql_template(template_file),
+            lookback_days=lookback_days,
+            min_spend=min_spend,
+            min_roas=min_roas,
+            scoped_predicate=scoped_predicate,
+            product_case=case_sql,
+            attribution_windows=str(meta_winners_cfg.get("attribution_windows") or "{7d_click,1d_view}"),
+        )
 
     return f"""
 with scoped as (
@@ -294,14 +364,36 @@ def _unwrap_entity_list(payload: dict[str, Any], key: str, inner_key: str) -> li
     return rows
 
 
-def _run_json(argv: list[str], *, timeout: int = 120) -> dict[str, Any]:
-    result = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+def _run_json(argv: list[str], *, timeout: int = 120, env: dict[str, str] | None = None) -> dict[str, Any]:
+    result = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, env=env)
     if result.returncode != 0:
         raise RuntimeError((result.stderr or result.stdout or "").strip())
     try:
         return json.loads(result.stdout)
     except json.JSONDecodeError as exc:
         raise RuntimeError(f"Command did not return JSON: {argv!r}\n{result.stdout[:1000]}") from exc
+
+
+def _bridge_query(sql: str, reason: str, source_cfg: dict[str, Any]) -> tuple[list[str], dict[str, str] | None]:
+    """argv + env for one read-only bridge lookup through warehouse/query.py.
+
+    `search_schema` (default public, where the reference layout keeps its
+    Meta/Shopify tables) becomes query.py's --warehouse-schema, i.e. the
+    transaction's search path. `database_url_env` names an env var holding
+    the DSN of the database the source tables live in (a Meta warehouse
+    separate from the Snap warehouse); unset means DATABASE_URL."""
+    schema = str(source_cfg.get("search_schema") or "public")
+    argv = [sys.executable, str(DASHBOARD_SQL), "--sql", sql, "--reason", reason, "--warehouse-schema", schema]
+    env_var = str(source_cfg.get("database_url_env") or "").strip()
+    if not env_var:
+        return argv, None
+    dsn = os.environ.get(env_var)
+    if not dsn:
+        raise RuntimeError(f"{env_var} is not set (bridge source database)")
+    return argv, {**os.environ, "DATABASE_URL": dsn}
+
+
+_LP_INVENTORY_CFG: dict[str, Any] = _CONFIG.get("landing_page_inventory") or {}
 
 
 def _snap_cli(*args: str) -> list[str]:
@@ -973,10 +1065,8 @@ def fetch_inventory_lp_choice() -> dict[str, Any]:
     if not DASHBOARD_SQL.exists():
         return {"error": f"dashboard SQL helper missing at {DASHBOARD_SQL}", "chosen": {}}
     try:
-        newest_payload = _run_json(
-            [sys.executable, str(DASHBOARD_SQL), "--sql", INVENTORY_NEWEST_SQL, "--reason", "Snap weekly bridge LP selection: newest inventory snapshot"],
-            timeout=45,
-        )
+        argv, env = _bridge_query(INVENTORY_NEWEST_SQL, "Snap weekly bridge LP selection: newest inventory snapshot", _LP_INVENTORY_CFG)
+        newest_payload = _run_json(argv, timeout=45, env=env)
         newest_rows = newest_payload.get("rows") or []
         newest = str((newest_rows[0] or {}).get("newest") or "")[:10] if newest_rows else ""
         if not newest:
@@ -986,10 +1076,8 @@ def fetch_inventory_lp_choice() -> dict[str, Any]:
             sql = INVENTORY_ROWS_SQL_TEMPLATE.format(
                 prefix=LP_HANDLE_PREFIX[product], newest=newest,
             )
-            payload = _run_json(
-                [sys.executable, str(DASHBOARD_SQL), "--sql", sql, "--reason", f"Snap weekly bridge LP selection by Shopify inventory ({product})"],
-                timeout=45,
-            )
+            argv, env = _bridge_query(sql, f"Snap weekly bridge LP selection by Shopify inventory ({product})", _LP_INVENTORY_CFG)
+            payload = _run_json(argv, timeout=45, env=env)
             all_rows.extend(r for r in payload.get("rows") or [] if isinstance(r, dict))
     except Exception as exc:  # noqa: BLE001
         return {"error": str(exc), "chosen": {}}
@@ -1014,18 +1102,13 @@ def fetch_meta_winner_candidates() -> dict[str, Any]:
     if not DASHBOARD_SQL.exists():
         return {"error": f"dashboard SQL helper missing at {DASHBOARD_SQL}", "rows": [], "new_rows": []}
     try:
-        payload = _run_json(
-            [
-                sys.executable,
-                str(DASHBOARD_SQL),
-                "--sql",
-                META_WINNERS_SQL,
-                "--reason",
-                "Snap weekly Meta winner refresh candidates for "
-                + ", ".join(route["label"] for route in ROUTES.values()),
-            ],
-            timeout=45,
+        argv, env = _bridge_query(
+            META_WINNERS_SQL,
+            "Snap weekly Meta winner refresh candidates for "
+            + ", ".join(route["label"] for route in ROUTES.values()),
+            _META_WINNERS_CFG,
         )
+        payload = _run_json(argv, timeout=45, env=env)
     except Exception as exc:  # noqa: BLE001
         return {"error": str(exc), "rows": [], "new_rows": [], "registry_rows": len(registry)}
     rows = payload.get("rows") or []
