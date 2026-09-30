@@ -29,8 +29,8 @@ One row per (ad, calendar day).
 | `video_views` | `integer` | `stats.video_views` | Direct. |
 | `video_views_p50` | `integer` | `stats.video_views_time_based` (best effort) | Extracted from the `video_views_time_based` object; Snap does not document one canonical key shape for this field across API versions, so the sync script tries a handful of plausible key aliases and leaves this `NULL` if none match. Verify against a live payload sample for your API version and extend `_P50_KEYS` in `sync_snapchat_daily.py` if needed. |
 | `video_views_p100` | `integer` | `stats.video_views_time_based` (best effort) | Same caveat as `video_views_p50`, via `_P100_KEYS`. |
-| `conversions` | `integer` | `stats.conversion_purchases` | Direct. |
-| `revenue` | `numeric(12,2)` | `stats.conversion_purchases_value` (micro) | `value_micro / 1_000_000`, rounded to cents on write. |
+| `conversions` | `integer` | `stats.conversion_purchases` | Direct, under the attribution windows in `SNAPCHAT_*_ATTRIBUTION_WINDOW` (Snap's defaults when unset). |
+| `revenue` | `numeric(12,2)` | `stats.conversion_purchases_value` (micro) | `value_micro / 1_000_000`, rounded to cents on write. Same attribution windows as `conversions`. |
 | `roas` | `numeric(14,4)` | derived | `revenue / spend`, `NULL` when `spend = 0`. |
 | `created_at` | `timestamp` | - | `pg_catalog.now()` default; not updated on conflict (first-insert timestamp only). |
 

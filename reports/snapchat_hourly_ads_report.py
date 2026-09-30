@@ -14,6 +14,12 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from warehouse.attribution import (  # noqa: E402
+    AttributionConfigError,
+    attribution_cli_args,
+    attribution_lens,
+    describe_lens,
+)
 from warehouse.delivery_status import entity_is_effectively_active  # noqa: E402
 
 SNAP_SCRIPTS_DIR = REPO_ROOT / "skills" / "snapchat-ads" / "scripts"
@@ -260,6 +266,11 @@ def collect_report(*, as_of_utc: datetime | None = None) -> dict:
     if captured_at.tzinfo is None:
         captured_at = captured_at.replace(tzinfo=timezone.utc)
     captured_at = captured_at.astimezone(timezone.utc)
+    try:
+        lens = attribution_lens()
+        attribution_args = attribution_cli_args()
+    except AttributionConfigError as exc:
+        return {"ok": False, "errors": [{"validation_error": str(exc)}]}
 
     health = run(["account", "health-check"])
     if health.get("_error"):
@@ -281,6 +292,7 @@ def collect_report(*, as_of_utc: datetime | None = None) -> dict:
         "report", "stats", "--entity", "ad_account", "--granularity", "TOTAL",
         "--start-time", last24_start, "--end-time", current_hour,
         "--fields", "spend,impressions,swipes,conversion_purchases,conversion_purchases_value", "--breakdown", "ad", "--omit-empty",
+        *attribution_args,
     ])
     # At exactly midnight in the Snap account timezone, the rounded current-hour
     # boundary equals today's start boundary. Snap rejects zero-length stats
@@ -294,6 +306,7 @@ def collect_report(*, as_of_utc: datetime | None = None) -> dict:
             "report", "stats", "--entity", "ad_account", "--granularity", "TOTAL",
             "--start-time", today_start, "--end-time", current_hour,
             "--fields", "spend,impressions,swipes,conversion_purchases,conversion_purchases_value", "--breakdown", "ad", "--omit-empty",
+            *attribution_args,
         ])
     ads = run(["ad", "list", "--limit", "200"])
 
@@ -437,6 +450,7 @@ def collect_report(*, as_of_utc: datetime | None = None) -> dict:
         "invalid_active_ads": invalid_active[:10],
         "top_ads_24h": top_rows[:10],
         "hourly_series": series[-12:],
+        "attribution": lens,
         "reconciliation": {
             "hourly_spend_micro": hourly_spend_micro,
             "ad_breakdown_spend_micro": last24_summary["spend_micro"],
@@ -448,6 +462,7 @@ def collect_report(*, as_of_utc: datetime | None = None) -> dict:
             f"Snap account timezone is {account_tz_name}; operational display timestamps also include Pacific Time.",
             "Snap ad-account hourly reporting supports spend-only at account level; the exact matching ad breakdown supplies impressions, swipes, and purchases.",
             "ROAS uses Snap conversion_purchases_value divided by spend for the same report window.",
+            f"Attribution windows: {describe_lens(lens)}.",
         ],
     }
 

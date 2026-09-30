@@ -44,6 +44,12 @@ try:
         RuntimePathError,
         resolve_snapchat_cli,
     )
+    from warehouse.attribution import (
+        AttributionConfigError,
+        attribution_cli_args,
+        attribution_lens,
+        describe_lens,
+    )
 except ModuleNotFoundError:  # Direct `python warehouse/...` execution.
     from schema_config import (  # type: ignore[no-redef]
         DEFAULT_WAREHOUSE_SCHEMA,
@@ -55,6 +61,12 @@ except ModuleNotFoundError:  # Direct `python warehouse/...` execution.
     from runtime_paths import (  # type: ignore[no-redef]
         RuntimePathError,
         resolve_snapchat_cli,
+    )
+    from attribution import (  # type: ignore[no-redef]
+        AttributionConfigError,
+        attribution_cli_args,
+        attribution_lens,
+        describe_lens,
     )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -548,6 +560,11 @@ def collect_sync_rows(
         raise SyncError(f"unsupported sync mode: {mode}")
     if days < 1:
         raise SyncError("days must be at least 1")
+    try:
+        lens = attribution_lens()
+        attribution_args = attribution_cli_args()
+    except AttributionConfigError as exc:
+        raise SyncError(str(exc)) from exc
 
     health = _run_cli_json("account", "health-check")
     account_timezone, account_tz = resolve_account_timezone(health)
@@ -584,6 +601,7 @@ def collect_sync_rows(
                 ",".join(STATS_FIELDS),
                 "--breakdown",
                 "ad",
+                *attribution_args,
                 "--include-empty",
             )
             raw_rows.extend(extract_daily_ad_rows(stats_payload))
@@ -615,6 +633,7 @@ def collect_sync_rows(
                 ",".join(STATS_FIELDS),
                 "--breakdown",
                 "ad",
+                *attribution_args,
                 "--omit-empty",
             )
             raw_rows.extend(
@@ -652,6 +671,7 @@ def collect_sync_rows(
         "chunk_count": len(chunks),
         "provisional": provisional,
         "captured_at": captured_at,
+        "attribution": lens,
         "rows": rows,
     }
 
@@ -709,7 +729,8 @@ def main() -> None:
         f"[sync_snapchat_daily] account={_snapchat_account()} mode={args.mode} "
         f"timezone={result['account_timezone']} "
         f"window={window['start']}..{window['end']} "
-        f"chunks={result['chunk_count']}",
+        f"chunks={result['chunk_count']} "
+        f"attribution=[{describe_lens(result['attribution'])}]",
         file=sys.stderr,
     )
 
@@ -722,6 +743,7 @@ def main() -> None:
                     "mode": args.mode,
                     "days": args.days,
                     "account_timezone": result["account_timezone"],
+                    "attribution": result["attribution"],
                     "window": window,
                     "provisional": result["provisional"],
                     "source_window_end": window["end"],
@@ -763,6 +785,7 @@ def main() -> None:
                 "mode": args.mode,
                 "days": args.days,
                 "account_timezone": result["account_timezone"],
+                "attribution": result["attribution"],
                 "window": window,
                 "provisional": result["provisional"],
                 "source_window_end": window["end"],

@@ -12,6 +12,7 @@ scripts, three tables, and no framework dependency.
 | `schema_config.py` | Shared schema validation, qualification, search-path defense, and DDL rendering. |
 | `sync_snapchat_daily.py` | Pulls trailing N days of ad-level daily stats from the Snap API (via the `snapchat-ads` CLI) and upserts into the warehouse. |
 | `sync_snapchat_entities.py` | Mirrors campaign/ad squad/ad state and records later field changes as `HUMAN_MANUAL`, `AGENT_API`, or `SNAP_SYSTEM`. Dry-run is the default. |
+| `attribution.py` | Reads the `SNAPCHAT_*_ATTRIBUTION_WINDOW` variables that fix the conversion lens for the sync and the hourly report. |
 | `query.py` | Single-file guarded read-only SQL runner. This is the contract downstream automation (an optimizer engine, a reporting bot, etc.) calls to read warehouse data. |
 | `table-map.md` | Full column reference, index/upsert-key documentation, and a query cookbook. |
 
@@ -225,6 +226,15 @@ that re-pulls a small trailing window (not just "yesterday") keeps
 attribution-adjusted numbers (purchases, revenue, ROAS) from silently
 under-reporting. Re-running the sync for the same day is safe; the
 upsert key is `(ad_id, recorded_at)`, so a re-pull just refreshes the row.
+
+Conversions, revenue and ROAS depend on the attribution windows each stats
+request names; spend does not. Set `SNAPCHAT_SWIPE_UP_ATTRIBUTION_WINDOW`,
+`SNAPCHAT_VIEW_ATTRIBUTION_WINDOW` and `SNAPCHAT_ENGAGED_VIEW_ATTRIBUTION_WINDOW`
+in the env file to state the lens (for example `7_DAY`, `none`, `none` for
+seven-day swipe credit only). Unset windows fall back to Snap's defaults. The
+sync and the hourly report read the same variables, every sync prints the lens
+it used, and the cycle receipt records it. Keep one lens per table: if you
+change it, re-pull the history you compare against.
 
 Recommended cadence:
 

@@ -615,6 +615,7 @@ def run_cycle(
                         ),
                         "provisional": metrics.get("provisional"),
                         "account_timezone": metrics.get("account_timezone"),
+                        "attribution": metrics.get("attribution"),
                     },
                 )
             return result

@@ -313,3 +313,69 @@ def test_collect_report_fails_closed_when_hourly_and_breakdown_spend_disagree(mo
 
     assert result["ok"] is False
     assert "does not reconcile" in result["errors"][0]["validation_error"]
+
+
+def _collect_with_env(monkeypatch, env):
+    as_of = datetime(2026, 7, 14, 23, 7, tzinfo=timezone.utc)
+    start = datetime(2026, 7, 13, 23, tzinfo=timezone.utc)
+    calls = []
+
+    def fake_run(args, timeout=180):
+        calls.append(list(args))
+        if args == ["account", "health-check"]:
+            return {"healthy": True, "timezone": "America/Los_Angeles"}
+        if "HOUR" in args:
+            return {"timeseries_stats": [{"timeseries_stat": {"timeseries": _hour_rows(start)}}]}
+        if "TOTAL" in args:
+            return _breakdown()
+        return {"ads": []}
+
+    for key in (
+        "SNAPCHAT_SWIPE_UP_ATTRIBUTION_WINDOW",
+        "SNAPCHAT_VIEW_ATTRIBUTION_WINDOW",
+        "SNAPCHAT_ENGAGED_VIEW_ATTRIBUTION_WINDOW",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setattr(report, "CONFIGURED_ACCOUNT_TZ_NAME", "")
+    monkeypatch.setattr(report, "run", fake_run)
+    return report.collect_report(as_of_utc=as_of), calls
+
+
+def test_collect_report_sends_the_attribution_lens_on_conversion_reads(monkeypatch):
+    result, calls = _collect_with_env(monkeypatch, {
+        "SNAPCHAT_SWIPE_UP_ATTRIBUTION_WINDOW": "7_DAY",
+        "SNAPCHAT_VIEW_ATTRIBUTION_WINDOW": "none",
+        "SNAPCHAT_ENGAGED_VIEW_ATTRIBUTION_WINDOW": "none",
+    })
+
+    assert result["ok"] is True
+    breakdown_calls = [c for c in calls if "TOTAL" in c]
+    assert len(breakdown_calls) == 2
+    for command in breakdown_calls:
+        assert command[command.index("--swipe-up-attribution-window") + 1] == "7_DAY"
+        assert command[command.index("--view-attribution-window") + 1] == "none"
+        assert json.loads(command[command.index("--params-json") + 1]) == {
+            "engaged_view_attribution_window": "none",
+        }
+    hourly_call = next(c for c in calls if "HOUR" in c)
+    assert "--swipe-up-attribution-window" not in hourly_call
+    assert result["attribution"]["swipe_up_attribution_window"] == "7_DAY"
+    assert any("swipe 7_DAY" in note for note in result["notes"])
+
+
+def test_collect_report_without_a_lens_keeps_snap_defaults(monkeypatch):
+    result, calls = _collect_with_env(monkeypatch, {})
+
+    assert result["ok"] is True
+    assert not any("--swipe-up-attribution-window" in c for c in calls)
+    assert set(result["attribution"].values()) == {None}
+
+
+def test_collect_report_rejects_a_malformed_lens_before_any_call(monkeypatch):
+    result, calls = _collect_with_env(monkeypatch, {"SNAPCHAT_VIEW_ATTRIBUTION_WINDOW": "forever"})
+
+    assert result["ok"] is False
+    assert calls == []
+    assert "SNAPCHAT_VIEW_ATTRIBUTION_WINDOW" in result["errors"][0]["validation_error"]
