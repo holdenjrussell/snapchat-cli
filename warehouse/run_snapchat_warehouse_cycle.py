@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["psycopg[binary]"]
+# ///
 """Orchestrate one locked Snapchat warehouse refresh cycle.
 
 The file lock is acquired before any Snapchat API child starts and is held

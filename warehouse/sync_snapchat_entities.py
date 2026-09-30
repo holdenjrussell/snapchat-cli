@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["psycopg[binary]"]
+# ///
 """Mirror Snapchat entity state and record field-level changes.
 
 The default mode is a read-only dry run. It reads live campaign, ad squad,

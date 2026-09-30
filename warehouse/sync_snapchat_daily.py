@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["psycopg[binary]"]
+# ///
 """Sync Snapchat ad-level daily stats into the warehouse.
 
 Closed mode preserves the original trailing-N-day DAY query. Intraday mode
