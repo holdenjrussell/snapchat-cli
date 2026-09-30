@@ -55,6 +55,7 @@
     "attribution_windows": "{7d_click,1d_view}"
   },
   "landing_page_inventory": {
+    "sql_template_file": "",
     "database_url_env": "",
     "search_schema": "public"
   },

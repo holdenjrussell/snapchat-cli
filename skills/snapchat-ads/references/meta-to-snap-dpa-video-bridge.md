@@ -45,6 +45,14 @@ through `config/optimizer.json`:
   e.g. `{7d_click,1d_view}`; name it when you report the candidates.
 - `landing_page_inventory.database_url_env` / `.search_schema`: the same for
   the Shopify inventory lookup that picks each product's landing page.
+- `landing_page_inventory.sql_template_file`: a brand-authored inventory query
+  for a Shopify warehouse without the reference `shopify_products`,
+  `shopify_product_variants` and `shopify_inventory_levels` snapshot tables.
+  It runs once per product with `__HANDLE_PREFIX__` filled from that product's
+  `handle_prefix` (lowercase letters, digits, `-`, `_`) and returns
+  `handle, available`; rows for one handle are summed and negatives count as
+  zero. The read-only guard scans the whole statement for write keywords, so
+  keep each `handle_prefix` free of words like `drop` or `update`.
 
 Spend and `min_spend` are in the Meta ad account's currency. The candidate
 list only proposes; the safety gate below still applies to every Snap write.

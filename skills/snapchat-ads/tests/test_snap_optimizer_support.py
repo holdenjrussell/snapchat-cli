@@ -403,3 +403,55 @@ def test_bridge_query_can_target_a_separate_meta_warehouse(monkeypatch):
     monkeypatch.delenv("META_WAREHOUSE_URL")
     with pytest.raises(RuntimeError, match="META_WAREHOUSE_URL is not set"):
         support._bridge_query("select 1", "why", {"database_url_env": "META_WAREHOUSE_URL"})
+
+
+def test_inventory_template_fills_prefix_and_rejects_unsafe_input():
+    import pytest
+
+    sql = support._render_inventory_template(
+        "select handle, available from inv where handle like '__HANDLE_PREFIX__%'", "product-a"
+    )
+    assert "like 'product-a%'" in sql and "__" not in sql
+    for bad in ("", "Product-A", "a'; drop table x; --", "a b"):
+        with pytest.raises(ValueError, match="handle_prefix"):
+            support._render_inventory_template("select '__HANDLE_PREFIX__'", bad)
+    with pytest.raises(ValueError, match="__OTHER__"):
+        support._render_inventory_template("select '__HANDLE_PREFIX__', __OTHER__", "product-a")
+
+
+def test_inventory_template_picks_the_landing_page_with_most_stock(tmp_path, monkeypatch):
+    template = tmp_path / "inventory.sql"
+    template.write_text(
+        "select handle, available from mcp_reporting.stock where handle like '__HANDLE_PREFIX__%'",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        support, "_LP_INVENTORY_CFG",
+        {"sql_template_file": str(template), "search_schema": "mcp_reporting"},
+    )
+    stock = {
+        "product-a": [
+            {"handle": "product-a-standard", "available": 5},
+            {"handle": "product-a-deluxe", "available": 40},
+            {"handle": "product-a-deluxe", "available": -3},  # oversold location counts as zero
+        ],
+        "product-b": [{"handle": "product-b-standard", "available": 9}],
+    }
+    calls = []
+
+    def fake_run_json(argv, *, timeout=120, env=None):
+        sql = argv[argv.index("--sql") + 1]
+        calls.append(argv)
+        prefix = next(p for p in stock if f"like '{p}%'" in sql)
+        return {"rows": stock[prefix]}
+
+    monkeypatch.setattr(support, "_run_json", fake_run_json)
+
+    result = support.fetch_inventory_lp_choice()
+
+    assert result["chosen"]["product_a"]["handle"] == "product-a-deluxe"
+    assert result["chosen"]["product_a"]["available"] == 40.0
+    assert result["chosen"]["product_b"]["handle"] == "product-b-standard"
+    assert len(calls) == 2  # one per product, no "newest snapshot" query
+    assert all(argv[-2:] == ["--warehouse-schema", "mcp_reporting"] for argv in calls)
+    assert not any(support.INVENTORY_NEWEST_SQL in argv for argv in calls)

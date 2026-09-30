@@ -394,6 +394,26 @@ def _bridge_query(sql: str, reason: str, source_cfg: dict[str, Any]) -> tuple[li
 
 
 _LP_INVENTORY_CFG: dict[str, Any] = _CONFIG.get("landing_page_inventory") or {}
+# Brand-authored inventory SQL (landing_page_inventory.sql_template_file) for a
+# Shopify warehouse without the reference shopify_products /
+# shopify_product_variants / shopify_inventory_levels snapshot tables. It runs
+# once per product with __HANDLE_PREFIX__ filled from that product's
+# handle_prefix and must return rows of (handle, available); rows for the same
+# handle are summed, negatives count as zero.
+_HANDLE_PREFIX_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+
+
+def _render_inventory_template(template: str, handle_prefix: str) -> str:
+    if not _HANDLE_PREFIX_RE.fullmatch(handle_prefix or ""):
+        raise ValueError(
+            "product handle_prefix must be lowercase letters, digits, '-' or '_' "
+            f"(got {handle_prefix!r})"
+        )
+    rendered = template.replace("__HANDLE_PREFIX__", handle_prefix)
+    unfilled = sorted(set(re.findall(r"__[A-Z][A-Z_]*__", rendered)))
+    if unfilled:
+        raise ValueError(f"landing-page inventory SQL template has unknown tokens: {unfilled}")
+    return rendered.strip()
 
 
 def _snap_cli(*args: str) -> list[str]:
@@ -1064,18 +1084,25 @@ def fetch_inventory_lp_choice() -> dict[str, Any]:
     """Pick the landing page per product by current Shopify available inventory."""
     if not DASHBOARD_SQL.exists():
         return {"error": f"dashboard SQL helper missing at {DASHBOARD_SQL}", "chosen": {}}
+    template_file = str(_LP_INVENTORY_CFG.get("sql_template_file") or "").strip()
     try:
-        argv, env = _bridge_query(INVENTORY_NEWEST_SQL, "Snap weekly bridge LP selection: newest inventory snapshot", _LP_INVENTORY_CFG)
-        newest_payload = _run_json(argv, timeout=45, env=env)
-        newest_rows = newest_payload.get("rows") or []
-        newest = str((newest_rows[0] or {}).get("newest") or "")[:10] if newest_rows else ""
-        if not newest:
-            return {"error": "no inventory snapshots found", "chosen": {}}
+        template = _read_sql_template(template_file) if template_file else ""
+        newest = ""
+        if not template:
+            argv, env = _bridge_query(INVENTORY_NEWEST_SQL, "Snap weekly bridge LP selection: newest inventory snapshot", _LP_INVENTORY_CFG)
+            newest_payload = _run_json(argv, timeout=45, env=env)
+            newest_rows = newest_payload.get("rows") or []
+            newest = str((newest_rows[0] or {}).get("newest") or "")[:10] if newest_rows else ""
+            if not newest:
+                return {"error": "no inventory snapshots found", "chosen": {}}
         all_rows: list[dict[str, Any]] = []
         for product in LP_CHOICES:
-            sql = INVENTORY_ROWS_SQL_TEMPLATE.format(
-                prefix=LP_HANDLE_PREFIX[product], newest=newest,
-            )
+            if template:
+                sql = _render_inventory_template(template, LP_HANDLE_PREFIX[product])
+            else:
+                sql = INVENTORY_ROWS_SQL_TEMPLATE.format(
+                    prefix=LP_HANDLE_PREFIX[product], newest=newest,
+                )
             argv, env = _bridge_query(sql, f"Snap weekly bridge LP selection by Shopify inventory ({product})", _LP_INVENTORY_CFG)
             payload = _run_json(argv, timeout=45, env=env)
             all_rows.extend(r for r in payload.get("rows") or [] if isinstance(r, dict))
