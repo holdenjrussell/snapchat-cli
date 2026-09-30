@@ -1,11 +1,11 @@
 ---
 name: slack-format
-description: Dependency-free Slack Block Kit builder for report/agent scripts. One-import drop-in (`from slack_format import Message, post`) that emits valid, document-style Slack messages — headers, sections, bullets, dividers, fields, native tables, context, buttons, images, cards, carousels — with built-in validation against the limits/elements live-tested in production Slack workspaces. Use when composing rich Slack messages/reports.
+description: Dependency-free Slack Block Kit builder for report/agent scripts. One-import drop-in (`from slack_format import Message, post`) that emits valid, document-style Slack messages: headers, sections, bullets, dividers, fields, native tables, context, buttons, images, cards, and carousels, with built-in validation against the limits/elements live-tested in production Slack workspaces. Use when composing rich Slack messages/reports.
 version: 1.0.0
 license: MIT
 ---
 
-# slack-format — Block Kit formatter for report/agent scripts
+# slack-format: Block Kit formatter for report/agent scripts
 
 A small, dependency-free Python library that turns report data into
 Slack-native, document-style messages. It is meant to be imported directly by
@@ -30,12 +30,12 @@ from slack_format import Message, post
 
 msg = (
     Message("Daily Shipping Report")        # fallback text (notifications / a11y)
-    .header("📦 Daily Shipping — Tier 1")    # H1
+    .header("📦 Daily Shipping: Tier 1")    # H1
     .context("My Brand · 2026-06-09")        # small footnote
     .divider()                               # line separator
     .h2("Headline")                          # H2
     .section("*4 SKUs* below the free-ship threshold.")  # paragraph (mrkdwn)
-    .bullets(["B07ABC — 2 days", "B09XYZ — restock filed"])  # rich_text_list
+    .bullets(["B07ABC - 2 days", "B09XYZ - restock filed"])  # rich_text_list
     .fields([("ASINs", "142"), ("OOS", "3 🔴")])  # 2-col key/value grid
     .table(["SKU", "Days", "Status"],            # real multi-col native table
            [["B07ABC", "2", "⚠️ low"]])
@@ -66,18 +66,18 @@ All builders are module-level functions **and** chainable `Message` methods.
 | `image(url, alt, title=)` | `image` | URL must be Slack-fetchable |
 | `card(title, body, button=, image_url=)` | section + accessory | the portable "content card" |
 | `carousel(cards)` | native `carousel` of `card` | swipeable deck; cards support `title`, `body`, `subtitle`, `subtext`, `image_url`/`hero_image_url`, and URL `button`; see limit below |
-| `card_fallback(cards)` | multi-block | header+section per card — carousel substitute |
+| `card_fallback(cards)` | multi-block | header+section per card; carousel substitute |
 
 Builder + post plumbing:
 
-- `Message(fallback)` — chainable builder; `.build(strict=True)` returns
+- `Message(fallback)`: chainable builder; `.build(strict=True)` returns
   `{text, blocks}` (raises on validation errors); `.post(channel, thread_ts=)`.
-- `post(channel, message=|text=|blocks=, thread_ts=, token=, strict=True)` —
+- `post(channel, message=|text=|blocks=, thread_ts=, token=, strict=True)`:
   `chat.postMessage`. Returns the parsed Slack response; raises
   `SlackFormatError` on transport or API error (`ok != true`).
-- `get_token(env_path=)` / `load_env(path)` — `SLACK_BOT_TOKEN` from env, else
+- `get_token(env_path=)` / `load_env(path)`: `SLACK_BOT_TOKEN` from env, else
   `~/.config/snapchat-ads-cli/.env`.
-- `validate(blocks)` — returns human-readable warnings for limit/element
+- `validate(blocks)`: returns human-readable warnings for limit/element
   violations *before* Slack rejects them. Limits exported as constants:
   `BLOCK_LIMIT=50`, `SECTION_TEXT_MAX=3000`, `FIELDS_MAX=10`,
   `MARKDOWN_CUMULATIVE_MAX=12000`, `TABLE_MAX_ROWS=100`, `TABLE_MAX_COLS=20`.
@@ -124,7 +124,7 @@ Shipping Tier-1 `output.txt` and re-renders it as a Block Kit document.
 ## Block Kit limits hit (document for reviewers)
 
 - **No native carousel for arbitrary blocks.** Slack's `carousel` only nests
-  `card` elements — you cannot put a table or image-grid into a swipe deck. Use
+  `card` elements; you cannot put a table or image-grid into a swipe deck. Use
   `carousel()` for card decks; use `card_fallback()` (header+section per card,
   divider-separated) where carousel isn't desired/available.
 - **Carousel card chart images**: `carousel()` supports card `image_url`/`hero_image_url`, which becomes `card.hero_image`. For charts inside cards, use a direct unauthenticated HTTPS URL returning image bytes (`image/png`/`image/jpeg`). `slack_file` and Slack private file/thumb URLs can API-pass but render as a warning icon in card heroes. For generated report charts, upload the PNG to a public/direct image endpoint (one heartbeat report implementation uses tmpfiles `/dl/...png` with a curl-like User-Agent, with QuickChart short URL as fallback) before building the carousel.
@@ -148,8 +148,8 @@ for reports that post a root Slack message plus a thread reply through
 `post_threaded_slack_json.py`.
 
 Hourly paid-social adoption pattern: `references/hourly-paid-social-adoption.md`
-documents the full surface area for hourly paid-social reports — direct
-systemd scripts, threaded systemd posters, and cron-based optimizer prompts —
+documents the full surface area for hourly paid-social reports: direct
+systemd scripts, threaded systemd posters, and cron-based optimizer prompts,
 plus the verification checklist. Use it when the user asks for all hourly
 paid-social reports to use Block Kit/rich Slack formatting.
 
@@ -185,7 +185,7 @@ directory and render only the decision-ready summary/tables in the thread.
 
 This library is a single dependency-free module (stdlib only). Copy
 `skills/slack-format/slack_format.py` into any agent's skills directory and
-`from slack_format import Message, post` — no install step, no external
+`from slack_format import Message, post`: no install step, no external
 packages, and no gateway-level patching required.
 
 Run `python3 selfcheck.py` after any environment change to confirm every

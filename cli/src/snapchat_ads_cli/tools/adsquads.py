@@ -12,7 +12,43 @@ READ_ONLY_AD_SQUAD_FIELDS = {
     "updated_at",
     "delivery_status",
     "deleted",
+    # Snap may return these legacy bid aliases, but rejects them on writes.
+    "auto_bid",
+    "target_bid",
 }
+
+
+def _normalize_bid_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Normalize Snap bid fields to the current Ads API contract.
+
+    TARGET_COST uses ``bid_micro`` as its target value. ``target_cost_micro``
+    is accepted only as a backwards-compatible caller alias and is never sent
+    to Snap.
+    """
+    normalized = dict(payload)
+    strategy = str(normalized.get("bid_strategy") or "").upper()
+    bid_micro = normalized.get("bid_micro")
+    target_cost_micro = normalized.pop("target_cost_micro", None)
+
+    if target_cost_micro is not None:
+        if strategy != "TARGET_COST":
+            raise ValueError(
+                "target_cost_micro is only valid as an input alias when "
+                "bid_strategy is TARGET_COST"
+            )
+        target_cost_micro = int(target_cost_micro)
+        if bid_micro is not None and int(bid_micro) != target_cost_micro:
+            raise ValueError(
+                "conflicting TARGET_COST values: bid_micro and "
+                "target_cost_micro must match"
+            )
+        bid_micro = target_cost_micro
+
+    if bid_micro is not None:
+        normalized["bid_micro"] = int(bid_micro)
+    if strategy == "TARGET_COST" and bid_micro is None:
+        raise ValueError("TARGET_COST requires bid_micro (the target cost in micro-currency)")
+    return normalized
 
 
 def _merge_update_payload(
@@ -24,9 +60,13 @@ def _merge_update_payload(
         k: v for k, v in current.items()
         if k not in READ_ONLY_AD_SQUAD_FIELDS and v is not None
     }
+    # A legacy target_cost_micro input is an explicit replacement for the
+    # current bid_micro, not a second simultaneous value.
+    if "target_cost_micro" in fields and "bid_micro" not in fields:
+        payload.pop("bid_micro", None)
     payload.update(fields)
     payload["id"] = ad_squad_id
-    return payload
+    return _normalize_bid_payload(payload)
 
 
 def list_ad_squads(
@@ -78,7 +118,7 @@ def create_ad_squad(
     payload: dict[str, Any],
     execute: bool = False,
 ) -> dict[str, Any]:
-    payload = dict(payload)
+    payload = _normalize_bid_payload(payload)
     payload.setdefault("campaign_id", campaign_id)
 
     if not execute:
@@ -136,6 +176,8 @@ def build_ad_squad_payload(
     if bid_micro is not None:
         payload["bid_micro"] = int(bid_micro)
     if target_cost_micro is not None:
+        # Kept as a caller alias for compatibility. The final normalization
+        # below maps it to bid_micro and removes this non-API field.
         payload["target_cost_micro"] = int(target_cost_micro)
     if min_roas is not None:
         payload["min_roas"] = float(min_roas)
@@ -164,7 +206,7 @@ def build_ad_squad_payload(
         payload["attribution_settings"] = settings
     if extra:
         payload.update(extra)
-    return payload
+    return _normalize_bid_payload(payload)
 
 
 def update_ad_squad(
@@ -216,7 +258,10 @@ def bulk_create_ad_squads(
     execute: bool = False,
 ) -> dict[str, Any]:
     from . import _bulk
-    items = [{"campaign_id": campaign_id, **i} for i in items]
+    items = [
+        _normalize_bid_payload({"campaign_id": campaign_id, **i})
+        for i in items
+    ]
     if not execute:
         return _bulk.preview_bulk(
             action=f"bulk-create {len(items)} ad squads in campaign {campaign_id}",
@@ -246,6 +291,7 @@ def bulk_update_ad_squads(
     missing = [i for i in items if not i.get("id")]
     if missing:
         return {"error": {"message": f"{len(missing)} item(s) missing required 'id' field"}}
+    items = [_normalize_bid_payload(i) for i in items]
     if not execute:
         return _bulk.preview_bulk(
             action=f"bulk-update {len(items)} ad squads",

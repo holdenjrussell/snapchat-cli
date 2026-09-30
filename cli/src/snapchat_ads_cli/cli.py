@@ -84,6 +84,19 @@ def _resolve_client(
         _bail(str(e), exit_code=2)
         return config, None, None
 
+    expected_ad_account_id = str(
+        ctx.obj.get("expected_ad_account_id") or ""
+    ).strip()
+    if (
+        expected_ad_account_id
+        and account.ad_account_id != expected_ad_account_id
+    ):
+        _bail(
+            "Configured Snapchat ad account does not match the required account binding",
+            exit_code=2,
+        )
+        return config, account, None
+
     token = account.load_token()
     if not token:
         _bail(
@@ -115,7 +128,7 @@ def _run(ctx: click.Context, fn, *, require_account: bool = True, **kwargs):
         return
     except SnapApiError as e:
         emit(e.to_dict(), human=ctx.obj.get("human", False))
-        return
+        sys.exit(1)
     emit(result, human=ctx.obj.get("human", False))
 
 
@@ -169,13 +182,24 @@ def _funnel_target_from_uri(redirect_uri: str) -> tuple[int, str, int]:
 
 @click.group(context_settings={"help_option_names": ["-h", "--help"]})
 @click.option("--account", "-a", default="default", help="Account key from accounts.toml")
+@click.option(
+    "--expected-ad-account-id",
+    default=None,
+    help="Fail closed unless the selected account resolves to this ad account ID",
+)
 @click.option("--human", is_flag=True, default=False, help="Human-readable output (tables)")
 @click.version_option(__version__, prog_name="snapchat-ads")
 @click.pass_context
-def cli(ctx: click.Context, account: str, human: bool) -> None:
+def cli(
+    ctx: click.Context,
+    account: str,
+    expected_ad_account_id: str | None,
+    human: bool,
+) -> None:
     """Snapchat Ads CLI -- full Snap Marketing API surface."""
     ctx.ensure_object(dict)
     ctx.obj["account"] = account
+    ctx.obj["expected_ad_account_id"] = expected_ad_account_id
     ctx.obj["human"] = human
     ctx.obj["config"] = load_config()
 

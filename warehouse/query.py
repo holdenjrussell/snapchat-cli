@@ -6,7 +6,9 @@
 """Run one read-only SELECT against the Snapchat Ads warehouse.
 
 Usage:
-    uv run warehouse/query.py --sql "SELECT COUNT(*) FROM snapchat_ad_daily_metrics" \\
+    uv run warehouse/query.py \\
+        --warehouse-schema "${SNAP_WAREHOUSE_SCHEMA:-snapchat_ads}" \\
+        --sql 'SELECT COUNT(*) FROM snapchat_ad_daily_metrics' \\
         --reason "how many rows in the warehouse"
 
 Guardrails: single SELECT/WITH...SELECT statement only, no writes, no DDL,
@@ -20,7 +22,8 @@ This exact shape is consumed by downstream automation, so it must not
 change without updating every caller.
 
 Reads the connection string from the DATABASE_URL environment variable.
-Exits 2 if DATABASE_URL is unset (never falls back to a hardcoded default).
+Exits 2 if DATABASE_URL is unset or the schema is invalid. The configured
+schema defaults to SNAP_WAREHOUSE_SCHEMA or snapchat_ads.
 """
 from __future__ import annotations
 
@@ -34,6 +37,21 @@ import sys
 import time
 import uuid
 from typing import Any
+
+try:
+    from warehouse.schema_config import (
+        DEFAULT_WAREHOUSE_SCHEMA,
+        WarehouseSchemaError,
+        search_path_sql,
+        validate_warehouse_schema,
+    )
+except ModuleNotFoundError:  # Direct script execution from warehouse/.
+    from schema_config import (
+        DEFAULT_WAREHOUSE_SCHEMA,
+        WarehouseSchemaError,
+        search_path_sql,
+        validate_warehouse_schema,
+    )
 
 # Statement keywords that must never appear in an agent-issued read query.
 # Matched as whole SQL keywords (word boundaries) so they don't false-positive
@@ -136,9 +154,27 @@ def main() -> None:
         default=5000,
         help="Max rows returned when the query doesn't already specify a LIMIT (default 5000).",
     )
+    parser.add_argument(
+        "--warehouse-schema",
+        default=os.environ.get("SNAP_WAREHOUSE_SCHEMA", DEFAULT_WAREHOUSE_SCHEMA),
+        help=(
+            "Validated warehouse schema used for this transaction's local search path "
+            f"(default: SNAP_WAREHOUSE_SCHEMA or {DEFAULT_WAREHOUSE_SCHEMA})."
+        ),
+    )
     args = parser.parse_args()
 
-    print(f"[query.py] reason={args.reason!r} limit_guard={args.limit_guard}", file=sys.stderr)
+    try:
+        warehouse_schema = validate_warehouse_schema(args.warehouse_schema)
+    except WarehouseSchemaError as exc:
+        print(json.dumps({"error": str(exc)}), file=sys.stderr)
+        sys.exit(2)
+
+    print(
+        f"[query.py] reason={args.reason!r} limit_guard={args.limit_guard} "
+        f"warehouse_schema={warehouse_schema!r}",
+        file=sys.stderr,
+    )
 
     try:
         validated = validate_select_only(args.sql)
@@ -158,10 +194,13 @@ def main() -> None:
 
     start = time.monotonic()
     try:
-        with psycopg.connect(database_url, autocommit=True) as conn:
-            with conn.cursor(row_factory=dict_row) as cur:
-                cur.execute(executed_sql)
-                rows = cur.fetchall()
+        with psycopg.connect(database_url) as conn:
+            with conn.transaction():
+                with conn.cursor(row_factory=dict_row) as cur:
+                    cur.execute("SET TRANSACTION READ ONLY")
+                    cur.execute(search_path_sql(warehouse_schema))
+                    cur.execute(executed_sql)
+                    rows = cur.fetchall()
     except psycopg.Error as exc:
         print(json.dumps({"error": f"Query failed: {exc}"}), file=sys.stderr)
         sys.exit(1)

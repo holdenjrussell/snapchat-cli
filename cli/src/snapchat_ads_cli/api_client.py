@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import random
 import time
 from typing import Any, Callable, Iterator
@@ -18,11 +19,26 @@ from .config import BASE_URL
 
 logger = logging.getLogger(__name__)
 
-MAX_RETRIES = 5
 RETRY_BASE_DELAY = 1.0
 MAX_BACKOFF = 60.0
 DEFAULT_TIMEOUT = 30.0
 UPLOAD_TIMEOUT = 300.0
+
+
+def _configured_max_attempts() -> int:
+    raw = os.environ.get("SNAPCHAT_API_MAX_ATTEMPTS", "2").strip()
+    try:
+        attempts = int(raw)
+    except ValueError as exc:
+        raise ValueError(
+            "SNAPCHAT_API_MAX_ATTEMPTS must be 1 or 2"
+        ) from exc
+    if attempts not in {1, 2}:
+        raise ValueError("SNAPCHAT_API_MAX_ATTEMPTS must be 1 or 2")
+    return attempts
+
+
+MAX_ATTEMPTS = _configured_max_attempts()
 
 
 class SnapApiError(Exception):
@@ -155,12 +171,16 @@ class SnapchatApiClient:
         """Execute one HTTP request with retry/backoff.
 
         Returns (body, lowercased_headers). Raises SnapApiError on
-        non-retryable failures or after MAX_RETRIES.
+        non-retryable failures or after ``SNAPCHAT_API_MAX_ATTEMPTS``.
+
+        The production warehouse contract allows one initial request plus at
+        most one transport or retryable-status retry. A 401 token refresh is a
+        separate one-time auth recovery path and cannot recurse more than once.
         """
         url = self._full_url(path)
         timeout = timeout if timeout is not None else DEFAULT_TIMEOUT
 
-        for attempt in range(MAX_RETRIES + 1):
+        for attempt in range(MAX_ATTEMPTS):
             try:
                 resp = self._client.request(
                     method,
@@ -173,14 +193,14 @@ class SnapchatApiClient:
                     timeout=timeout,
                 )
             except httpx.TimeoutException as e:
-                if attempt < MAX_RETRIES:
+                if attempt + 1 < MAX_ATTEMPTS:
                     delay = _backoff_delay(attempt)
                     logger.warning("Timeout on %s %s, retry in %.1fs", method, path, delay)
                     time.sleep(delay)
                     continue
                 raise SnapApiError(f"Timeout: {e}", 0, "timeout") from e
             except httpx.HTTPError as e:
-                if attempt < MAX_RETRIES:
+                if attempt + 1 < MAX_ATTEMPTS:
                     delay = _backoff_delay(attempt)
                     logger.warning("HTTP error on %s %s: %s, retry in %.1fs", method, path, e, delay)
                     time.sleep(delay)
@@ -189,7 +209,10 @@ class SnapchatApiClient:
 
             headers = {k.lower(): v for k, v in resp.headers.items()}
 
-            if _is_retryable_status(resp.status_code) and attempt < MAX_RETRIES:
+            if (
+                _is_retryable_status(resp.status_code)
+                and attempt + 1 < MAX_ATTEMPTS
+            ):
                 delay = _backoff_delay(attempt, _parse_retry_after(headers))
                 logger.warning(
                     "HTTP %d on %s %s, retry in %.1fs (attempt %d/%d)",
@@ -198,7 +221,7 @@ class SnapchatApiClient:
                     path,
                     delay,
                     attempt + 1,
-                    MAX_RETRIES,
+                    MAX_ATTEMPTS,
                 )
                 time.sleep(delay)
                 continue
@@ -284,8 +307,14 @@ class SnapchatApiClient:
         params: dict[str, Any] | None = None,
         timeout: float = UPLOAD_TIMEOUT,
     ) -> tuple[dict[str, Any], dict[str, str]]:
+        files = dict(files or {})
+        if not files and data:
+            # Force multipart/form-data when only form fields are present;
+            # Snap's upload endpoints 415 (E1006) on urlencoded bodies.
+            files = {key: (None, str(value)) for key, value in data.items()}
+            data = {}
         return self.request(
-            "POST", path, params=params, data=data, files=files or {}, timeout=timeout
+            "POST", path, params=params, data=data, files=files, timeout=timeout
         )
 
     def get_paginated(

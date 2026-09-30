@@ -53,12 +53,13 @@ Repo layout (all paths relative to this repo root):
 
 ## Phase 3 — Data warehouse
 
-1. Ask for `DATABASE_URL` (any Postgres — Neon/Supabase/local). Add to the env file.
-2. Apply schema + backfill: `uv run warehouse/sync_snapchat_daily.py --apply-schema --days 30`
-3. Verify: `uv run warehouse/query.py --sql "select count(*) as rows, max(recorded_at) as newest from snapchat_ad_daily_metrics" --reason "setup verification"`
-4. Schedule the sync (daily at minimum, hourly if they want fresh intraday data) via cron/systemd — mirror the pattern in `reports/systemd/`.
+1. Ask for `DATABASE_URL` (any Postgres — Neon/Supabase/local). Add it and `SNAP_WAREHOUSE_SCHEMA` (default `snapchat_ads`; an install that already has `public.snapchat_ad_daily_metrics` sets `public` to upgrade that table in place) to the env file.
+2. Preview, then show the user the schema before writing: `uv run warehouse/sync_snapchat_daily.py --dry-run --days 30` and `uv run warehouse/sync_snapchat_entities.py`.
+3. After approval, create the schema with the entity baseline, then backfill metrics: `uv run warehouse/sync_snapchat_entities.py --execute --apply-schema`, then `uv run warehouse/sync_snapchat_daily.py --days 30`. Both read `SNAP_WAREHOUSE_SCHEMA`.
+4. Verify against the account: per-day `SUM(spend)` in `<schema>.snapchat_ad_daily_metrics` must equal `snapchat-ads report stats --entity ad_account --id <AD_ACCOUNT_ID> --granularity DAY --fields spend` for the same account-timezone days.
+5. Schedule `warehouse/run_snapchat_warehouse_cycle.py --mode closed --execute` daily (trailing closed days) and `--mode recent --execute` hourly (today so far, stored as provisional rows) via cron/systemd/launchd. The cycle takes a file lock and records each run in `snapchat_sync_runs`. Anything that reports today's spend, such as a P&L, needs the hourly recent cycle.
 
-**Gate:** row count > 0 (or 0 with a clean run if the account is brand new) and the newest date is within the backfill window. Read `warehouse/table-map.md` for the column contract.
+**Gate:** closed days reconcile to the account-level API to the cent, today's provisional row exists after a recent cycle, and `snapchat_entity_state` has a current baseline. Read `warehouse/table-map.md` for the column contract.
 
 ## Phase 4 — Docs index (Obsidian or docs/)
 

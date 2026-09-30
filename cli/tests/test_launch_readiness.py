@@ -338,6 +338,71 @@ class FullObjectUpdateTests(unittest.TestCase):
         self.assertEqual(payload["targeting"], {"geos": [{"country_code": "us"}]})
         self.assertEqual(payload["daily_budget_micro"], 2000000)
 
+    def test_target_cost_builder_emits_only_bid_micro(self):
+        payload = adsquads.build_ad_squad_payload(
+            name="Target Cost",
+            campaign_id="camp1",
+            bid_strategy="TARGET_COST",
+            target_cost_micro=70_000_000,
+        )
+
+        self.assertEqual(payload["bid_micro"], 70_000_000)
+        self.assertNotIn("target_cost_micro", payload)
+
+    def test_target_cost_builder_rejects_conflicting_bid_aliases(self):
+        with self.assertRaisesRegex(ValueError, "conflicting TARGET_COST values"):
+            adsquads.build_ad_squad_payload(
+                name="Target Cost",
+                campaign_id="camp1",
+                bid_strategy="TARGET_COST",
+                bid_micro=60_000_000,
+                target_cost_micro=70_000_000,
+            )
+
+    def test_target_cost_alias_is_rejected_for_non_target_strategy(self):
+        with self.assertRaisesRegex(ValueError, "only valid as an input alias"):
+            adsquads.build_ad_squad_payload(
+                name="Auto Bid",
+                campaign_id="camp1",
+                bid_strategy="AUTO_BID",
+                target_cost_micro=70_000_000,
+            )
+
+    def test_adsquad_update_strips_legacy_bid_aliases(self):
+        client = FakeClient()
+        client.get_responses["adsquads/squad1"] = {
+            "adsquads": [
+                {
+                    "adsquad": {
+                        "id": "squad1",
+                        "campaign_id": "camp1",
+                        "name": "Target Cost",
+                        "type": "SNAP_ADS",
+                        "status": "PAUSED",
+                        "bid_strategy": "TARGET_COST",
+                        "bid_micro": 60_000_000,
+                        "auto_bid": False,
+                        "target_bid": True,
+                    }
+                }
+            ]
+        }
+
+        adsquads.update_ad_squad(
+            client,
+            "acct1",
+            "squad1",
+            "default",
+            fields={"target_cost_micro": 70_000_000},
+            execute=True,
+        )
+
+        payload = client.calls[-1][2]["adsquads"][0]
+        self.assertEqual(payload["bid_micro"], 70_000_000)
+        self.assertNotIn("target_cost_micro", payload)
+        self.assertNotIn("auto_bid", payload)
+        self.assertNotIn("target_bid", payload)
+
     def test_ad_update_merges_current_object_before_put(self):
         client = FakeClient()
         client.get_responses["ads/ad1"] = {

@@ -15,6 +15,13 @@ CHUNK_THRESHOLD = 32 * 1024 * 1024
 CHUNK_SIZE = 8 * 1024 * 1024
 
 
+def _guess_mime(file_path: Path) -> str:
+    """Snap's media upload 415s on application/octet-stream; send the real type."""
+    import mimetypes
+
+    return mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
+
+
 def list_media(
     client: SnapchatApiClient,
     ad_account_id: str,
@@ -143,7 +150,7 @@ def _direct_upload(
     client: SnapchatApiClient, media_id: str, file_path: Path
 ) -> dict[str, Any]:
     with open(file_path, "rb") as f:
-        files = {"file": (file_path.name, f, "application/octet-stream")}
+        files = {"file": (file_path.name, f, _guess_mime(file_path))}
         body, _ = client.post_multipart(
             f"media/{media_id}/upload", data={}, files=files
         )
@@ -183,7 +190,7 @@ def _chunked_upload(
             chunk = f.read(chunk_size)
             if not chunk:
                 break
-            files = {"file": (f"{file_path.name}.part{index}", chunk, "application/octet-stream")}
+            files = {"file": (f"{file_path.name}.part{index}", chunk, _guess_mime(file_path))}
             data = {"upload_id": str(upload_id), "part_number": str(index)}
             params = None if "action=ADD" in add_path else {"action": "ADD"}
             part_body, _ = client.post_multipart(

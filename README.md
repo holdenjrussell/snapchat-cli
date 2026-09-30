@@ -4,7 +4,7 @@ A complete, brand-agnostic **Snapchat ads operations stack** designed to be run 
 
 - **`cli/`** — full-surface CLI for the Snap Marketing API: 24 command groups, ~172 commands (campaigns, ad squads, ads, creatives, media, segments, pixels, catalogs, CAPI, reports, bulk ops, targeting, estimates). JSON by default, `--human` for tables, two-phase preview/`--execute` on every write, append-only audit log.
 - **`skills/`** — agent skills: the Snap API reference + safe wrapper + **autonomous optimizer engine**, a dependency-free **Slack Block Kit** library, and quick-command patterns.
-- **`warehouse/`** — Postgres warehouse layer: schema, daily ad-level sync (upsert on `ad_id + recorded_at`), SELECT-only query helper, full table map + query cookbook.
+- **`warehouse/`** — Postgres warehouse layer in a configurable schema (`SNAP_WAREHOUSE_SCHEMA`, default `snapchat_ads`): ad-level daily metrics (closed days plus today's provisional rows, upsert on `ad_id + recorded_at`), entity state and change history, a locked closed/recent sync cycle with run receipts, a SELECT-only query helper, full table map + query cookbook.
 - **`reports/`** — hourly Slack heartbeat (rolling-24h ROAS / CPA / spend, threaded detail, Block Kit) with systemd/cron install, plus the daily/weekly optimizer entry points.
 - **`docs/`** — campaign setup, the bid/budget control model, ads strategy notes, and a docs-catalog template (Obsidian-ready).
 

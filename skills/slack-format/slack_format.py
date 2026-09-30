@@ -1,4 +1,4 @@
-"""slack_format — reusable Slack Block Kit formatter.
+"""slack_format: reusable Slack Block Kit formatter.
 
 A one-import drop-in for report/agent scripts. Build Slack-native,
 document-style messages with clean helpers covering every Block Kit element
@@ -13,19 +13,19 @@ this library supports, then post them with a single call.
         .divider()
         .h2("Headline")
         .section("*4 SKUs* below the free-ship threshold.")
-        .bullets(["B07ABC — 2 days left", "B09XYZ — restock filed"])
+        .bullets(["B07ABC - 2 days left", "B09XYZ - restock filed"])
         .table(["SKU", "Days", "Status"], [["B07ABC", "2", "⚠️ low"]])
         .buttons([("Open dashboard", "https://example.com")])
     )
     post("<SLACK_CHANNEL_ID>", msg)
 
 Every block shape used here was validated by live `chat.postMessage` tests in
-a production Slack workspace — see references/live-test-matrix.md. The helpers
+a production Slack workspace; see references/live-test-matrix.md. The helpers
 stay inside the verified-supported set and avoid the known-rejected elements
 (multi-selects, file blocks, workflow buttons, file/rich_text inputs in
 messages).
 
-This module lives in skills/slack-format/ and has no external dependencies —
+This module lives in skills/slack-format/ and has no external dependencies;
 see SKILL.md "Portability".
 """
 
@@ -76,7 +76,7 @@ __all__ = [
 SLACK_API = "https://slack.com/api/"
 
 # --------------------------------------------------------------------------- #
-# Limits — discovered/confirmed by live tests in a production workspace.
+# Limits: discovered/confirmed by live tests in a production workspace.
 # --------------------------------------------------------------------------- #
 BLOCK_LIMIT = 50               # max blocks per message
 SECTION_TEXT_MAX = 3000        # max chars in a section text field
@@ -190,12 +190,12 @@ def section(text: str, accessory: Optional[Dict[str, Any]] = None) -> Dict[str, 
     return block
 
 
-# Alias — "paragraph" was requested explicitly.
+# Alias: "paragraph" was requested explicitly.
 paragraph = section
 
 
 def fields(pairs: Sequence[Tuple[str, str]]) -> Dict[str, Any]:
-    """A two-column key/value grid (``section.fields``) — a compact table-ish layout.
+    """A two-column key/value grid (``section.fields``): a compact table-ish layout.
 
     Slack renders fields in two columns, top-to-bottom. Max 10 fields total.
     """
@@ -259,7 +259,7 @@ def table(headers: Sequence[str], rows: Sequence[Sequence[Any]]) -> Dict[str, An
 def md_table(headers: Sequence[str], rows: Sequence[Sequence[Any]]) -> Dict[str, Any]:
     """Multi-column table rendered as a Markdown pipe table inside a ``markdown`` block.
 
-    Rock-solid fallback for the native :func:`table` — Markdown tables render
+    Rock-solid fallback for the native :func:`table`. Markdown tables render
     reliably everywhere.
     """
     head = "| " + " | ".join(str(h) for h in headers) + " |"
@@ -335,7 +335,7 @@ def card(title: str, body: str, button: Optional[Tuple[str, str]] = None,
 
     This is the portable card shape (section + accessory). For a swipeable
     deck of cards use :func:`carousel`. Slack has *no native carousel for a
-    plain section*, so multiple cards become multiple blocks — see
+    plain section*, so multiple cards become multiple blocks; see
     :func:`card_fallback`.
     """
     text = f"*{title}*\n{body}"
@@ -353,7 +353,7 @@ def carousel(cards: Sequence[Dict[str, str]]) -> Dict[str, Any]:
     Each card dict supports ``title``, ``body``, optional ``subtitle``,
     ``subtext``, ``image_url``/``hero_image_url`` (rendered as ``hero_image``),
     and optional URL ``button``. Confirmed supported in a production workspace.
-    LIMIT: Slack has no carousel for arbitrary blocks — only ``card`` elements
+    LIMIT: Slack has no carousel for arbitrary blocks. Only ``card`` elements
     nest inside a carousel. For environments where carousel is unavailable, use
     :func:`card_fallback` (header+section per card, separated by dividers).
     """
@@ -445,13 +445,13 @@ def _find_types(obj: Any) -> Iterable[str]:
 
 
 # --------------------------------------------------------------------------- #
-# Message builder — chainable, accumulates blocks, validates, posts.
+# Message builder: chainable, accumulates blocks, validates, posts.
 # --------------------------------------------------------------------------- #
 class Message:
     """Chainable Block Kit message builder.
 
     The constructor's ``fallback`` text becomes the top-level ``text`` field
-    (used for notifications and screen readers — always keep it populated).
+    (used for notifications and screen readers; always keep it populated).
     """
 
     def __init__(self, fallback: str = "") -> None:
@@ -509,7 +509,7 @@ class Message:
 
 
 # --------------------------------------------------------------------------- #
-# Poster — single seam that touches Slack. chat.postMessage with blocks.
+# Poster: single seam that touches Slack. chat.postMessage with blocks.
 # --------------------------------------------------------------------------- #
 def post(channel: str,
          message: Optional[Message] = None,

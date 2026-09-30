@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""selfcheck — offline build+validate of every slack_format element. No posting.
+"""selfcheck: offline build+validate of every slack_format element. No posting.
 
 Exits 0 if every helper produces a block that passes validate() and a full
 showcase message builds within Slack's limits. Run after any environment

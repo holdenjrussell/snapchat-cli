@@ -1,4 +1,4 @@
-# Secrets & instance config — never commit
+# Secrets & instance config: never commit
 .env
 *.env
 !.env.example
