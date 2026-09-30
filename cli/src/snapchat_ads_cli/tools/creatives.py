@@ -157,7 +157,8 @@ def update_creative(
 
 
 def preview_creative(client: SnapchatApiClient, creative_id: str) -> dict[str, Any]:
-    body, _ = client.get(f"creatives/{creative_id}/previews")
+    """GET /v1/creatives/{id}/creative_preview (Snap has no /previews route)."""
+    body, _ = client.get(f"creatives/{creative_id}/creative_preview")
     return body
 
 

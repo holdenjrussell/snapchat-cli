@@ -70,6 +70,19 @@ class BatchGetTests(unittest.TestCase):
         self.assertEqual(result["failed_batches"], [])
 
 
+class CreativePreviewTests(unittest.TestCase):
+    def test_preview_reads_the_creative_preview_endpoint(self):
+        client = FakeClient()
+        client.get_responses["creatives/cr1/creative_preview"] = {
+            "request_status": "SUCCESS"
+        }
+
+        result = creatives.preview_creative(client, "cr1")
+
+        self.assertEqual(client.calls, [("GET", "creatives/cr1/creative_preview", None)])
+        self.assertEqual(result, {"request_status": "SUCCESS"})
+
+
 class ReportingTests(unittest.TestCase):
     def test_async_submit_uses_stats_endpoint_with_async_params(self):
         client = FakeClient()
