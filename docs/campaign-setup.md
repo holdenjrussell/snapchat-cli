@@ -48,6 +48,7 @@ Choices that matter:
 
 - **Bid strategy — use `TARGET_COST`** if you want the optimizer to manage the account. Its whole control model walks the CPA target up/down as the primary spend lever. `LOWEST_COST_WITH_MAX_BID` works for manual accounts but gives the optimizer only the budget lever.
 - **Initial CPA target:** set it at (or slightly above) your actual target CPA. Set the initial `--bid` inside the optimizer's configured floor/ceiling band so its first adjustments aren't clamped.
+- **Where the target lives:** for `TARGET_COST`, Snap stores the target in `bid_micro`. `--bid` and the `--target-cost` alias both normalize to that one field; the CLI never sends `target_cost_micro` and refuses two values that disagree. When you read a squad back, check `bid_micro`.
 - **Daily budget: set it high relative to expected spend.** Under TARGET_COST the CPA target throttles spend, not the budget. The optimizer raises budgets only when utilization ≥ 85%, and cuts CPA — not budget — first when performance dips.
 - **Broad targeting** (age band + geo, no interest stacking) is the default posture; Snap's delivery does the narrowing. Use `targeting insights-breakdown` to sanity-check audience size, and `estimate audience-size` before launch.
 - One squad per audience temperature (cold / retargeting) per product is enough to start. More squads fragment the pixel signal.
