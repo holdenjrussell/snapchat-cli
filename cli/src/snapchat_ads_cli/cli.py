@@ -3121,8 +3121,9 @@ def creative_app_install(
 @click.option("--block-preload", is_flag=True)
 @click.option("--deep-link-urls", default=None, help="Comma-separated list")
 @click.option(
-    "--northbeam-tags/--no-northbeam-tags", default=True,
-    help="Append the Northbeam nbt/utm params to the URL and set url_macro_parameters (default on)",
+    "--northbeam-tags/--no-northbeam-tags", default=None,
+    help="Append the Northbeam nbt/utm params to the URL and set url_macro_parameters "
+    "(default on; SNAPCHAT_NORTHBEAM_TAGS=0 turns the default off)",
 )
 @click.pass_context
 def creative_web_view(
@@ -3143,7 +3144,7 @@ def creative_web_view(
     immersive: bool,
     block_preload: bool,
     deep_link_urls: str | None,
-    northbeam_tags: bool,
+    northbeam_tags: bool | None,
 ) -> None:
     extra = _json_arg(extra_json)
     chat_properties = _json_arg(chat_properties_json)
@@ -3268,8 +3269,9 @@ def creative_ad_to_lens(
 @click.option("--default-fallback-type", default="WEB_VIEW")
 @click.option("--fallback-url", default=None)
 @click.option(
-    "--northbeam-tags/--no-northbeam-tags", default=True,
-    help="Append the Northbeam nbt/utm params to the fallback URL and set url_macro_parameters (default on)",
+    "--northbeam-tags/--no-northbeam-tags", default=None,
+    help="Append the Northbeam nbt/utm params to the fallback URL and set url_macro_parameters "
+    "(default on; SNAPCHAT_NORTHBEAM_TAGS=0 turns the default off)",
 )
 @click.pass_context
 def creative_collection(
@@ -3288,7 +3290,7 @@ def creative_collection(
     interaction_zone_id: str,
     default_fallback_type: str,
     fallback_url: str | None,
-    northbeam_tags: bool,
+    northbeam_tags: bool | None,
 ) -> None:
     extra = _json_arg(extra_json)
 

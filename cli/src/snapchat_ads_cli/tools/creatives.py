@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from ..api_client import SnapchatApiClient
@@ -44,11 +45,22 @@ def _apply_common_optional(
 # "tracking-for-snapchat-ads"). Every web-view URL and collection fallback URL created through
 # this CLI carries them by default so Northbeam can stitch campaign / ad squad / ad ids into
 # Shopify attribution. Without them the ad delivers normally but its revenue is invisible to
-# Northbeam. Pass northbeam_tags=False (CLI: --no-northbeam-tags) only when you know why.
+# Northbeam. Pass northbeam_tags=False (CLI: --no-northbeam-tags) for one creative, or set
+# SNAPCHAT_NORTHBEAM_TAGS=0 for an account that uses another attribution tool and carries its
+# own tracking params: there the appended utm_* keys would collide with the ones already on
+# the landing page.
 NORTHBEAM_SNAP_URL_PARAMS = (
     "nbt=nb:snapchat:{{site_source_name}}:{{campaign.id}}:{{adSet.id}}:{{ad.id}}"
     "&utm_source=snapchat&utm_campaign={{campaign.id}}&utm_content={{adSet.name}}"
 )
+
+
+def northbeam_tags_default() -> bool:
+    """Whether builders add the Northbeam params when the caller does not say.
+
+    On unless SNAPCHAT_NORTHBEAM_TAGS is 0, false, no or off."""
+    raw = os.environ.get("SNAPCHAT_NORTHBEAM_TAGS", "").strip().lower()
+    return raw not in {"0", "false", "no", "off"}
 
 
 def with_northbeam_params(url: str | None) -> str | None:
@@ -298,9 +310,11 @@ def create_web_view(
     cta_color_display_mode: str | None = None,
     chat_properties: dict[str, Any] | None = None,
     extra: dict[str, Any] | None = None,
-    northbeam_tags: bool = True,
+    northbeam_tags: bool | None = None,
     execute: bool = False,
 ) -> dict[str, Any]:
+    if northbeam_tags is None:
+        northbeam_tags = northbeam_tags_default()
     props: dict[str, Any] = {
         "url": with_northbeam_params(url) if northbeam_tags else url,
         "allow_snap_javascript_sdk": allow_snap_javascript_sdk,
@@ -445,9 +459,11 @@ def create_collection(
     call_to_action: str | None = None,
     cta_color_display_mode: str | None = None,
     extra: dict[str, Any] | None = None,
-    northbeam_tags: bool = True,
+    northbeam_tags: bool | None = None,
     execute: bool = False,
 ) -> dict[str, Any]:
+    if northbeam_tags is None:
+        northbeam_tags = northbeam_tags_default()
     props: dict[str, Any] = {
         "interaction_zone_id": interaction_zone_id,
         "default_fallback_interaction_type": default_fallback_interaction_type,
