@@ -87,7 +87,7 @@ snapchat-ads report stats --entity ad_account --granularity TOTAL \
   --breakdown ad --omit-empty
 ```
 
-For hourly pacing, account-level hourly supports spend-only:
+For hourly pacing, a spend-only account call is the cheapest read:
 
 ```bash
 snapchat-ads report hourly --hours 24 --fields spend

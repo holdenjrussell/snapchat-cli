@@ -16,8 +16,9 @@ Async reports (for large pulls):
 from __future__ import annotations
 
 import httpx
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, time as dtime, timedelta, timezone, tzinfo
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from ..api_client import SnapchatApiClient
 
@@ -123,6 +124,134 @@ def sync_stats(
     return body
 
 
+# ---------------------------------------------------------------------------
+# Account-grain reports
+#
+# Snap serves only `spend` at AdAccount level; any other field returns E1008
+# ("Only field 'spend' should be used when querying AdAccount stats"). The
+# account reports below therefore ask for a campaign breakdown and sum it back
+# to account grain, keeping the plain timeseries envelope callers and --human
+# already understand. Day and hour boundaries are built in the ad account's own
+# timezone, which is what Snap buckets on.
+# ---------------------------------------------------------------------------
+
+# Fields that cannot be added across campaigns; they are left out of a rollup
+# and named in `not_summed_fields`. Deduplicated reach, averages, rates and
+# effective costs are recomputed from sums by the caller, never summed.
+NON_ADDITIVE_FIELDS = {
+    "uniques",
+    "frequency",
+    "avg_screen_time_millis",
+    "avg_view_time_millis",
+    "avg_position",
+    "swipe_up_percent",
+    "view_completion_rate",
+    "ecpm",
+    "ecpsu",
+}
+_NON_ADDITIVE_PREFIXES = ("avg_", "ecp")
+_NON_ADDITIVE_SUFFIXES = ("_rate", "_percent", "_frequency", "_uniques")
+
+
+def _is_non_additive(name: str) -> bool:
+    return (
+        name in NON_ADDITIVE_FIELDS
+        or name.startswith(_NON_ADDITIVE_PREFIXES)
+        or name.endswith(_NON_ADDITIVE_SUFFIXES)
+    )
+
+
+def _account_timezone(client: SnapchatApiClient, ad_account_id: str) -> tzinfo:
+    """The ad account's reporting timezone; UTC when it cannot be read."""
+    try:
+        body, _ = client.get(f"adaccounts/{ad_account_id}")
+        for wrapper in body.get("adaccounts", []):
+            name = (wrapper.get("adaccount") or {}).get("timezone")
+            if name:
+                return ZoneInfo(name)
+    except Exception:  # noqa: BLE001 - a report should not die on a metadata read
+        pass
+    return timezone.utc
+
+
+def _day_start(day: date, tz: tzinfo) -> str:
+    return datetime.combine(day, dtime.min, tzinfo=tz).isoformat(timespec="milliseconds")
+
+
+def _account_stats(
+    client: SnapchatApiClient,
+    ad_account_id: str,
+    *,
+    granularity: str,
+    start_time: str,
+    end_time: str,
+    fields: list[str],
+) -> dict[str, Any]:
+    """Account-grain stats for any field list (see the section note above)."""
+    if set(fields) <= {"spend"}:
+        return sync_stats(
+            client,
+            entity_type="ad_account",
+            entity_id=ad_account_id,
+            granularity=granularity,
+            start_time=start_time,
+            end_time=end_time,
+            fields=fields,
+        )
+    body = sync_stats(
+        client,
+        entity_type="ad_account",
+        entity_id=ad_account_id,
+        granularity=granularity,
+        start_time=start_time,
+        end_time=end_time,
+        fields=fields,
+        breakdown="campaign",
+    )
+    return _account_rollup(body)
+
+
+def _account_rollup(body: dict[str, Any]) -> dict[str, Any]:
+    """Sum a campaign-breakdown stats body back to one account timeseries."""
+    if "timeseries_stats" not in body:
+        return body  # error envelope: pass it through untouched
+    rolled_stats = []
+    for wrapper in body.get("timeseries_stats", []):
+        stat = wrapper.get("timeseries_stat") or {}
+        buckets: dict[tuple[str, str], dict[str, float]] = {}
+        skipped: set[str] = set()
+        campaigns = (stat.get("breakdown_stats") or {}).get("campaign", [])
+        for campaign in campaigns:
+            for point in campaign.get("timeseries", []):
+                key = (point.get("start_time", ""), point.get("end_time", ""))
+                bucket = buckets.setdefault(key, {})
+                for name, value in (point.get("stats") or {}).items():
+                    if _is_non_additive(name):
+                        skipped.add(name)
+                        continue
+                    if isinstance(value, bool) or not isinstance(value, (int, float)):
+                        continue
+                    bucket[name] = bucket.get(name, 0) + value
+        rolled = {k: v for k, v in stat.items() if k != "breakdown_stats"}
+        rolled["timeseries"] = [
+            {"start_time": start, "end_time": end, "stats": buckets[(start, end)]}
+            for start, end in sorted(buckets)
+        ]
+        rolled["rolled_up_from"] = "campaign"
+        rolled["campaigns_summed"] = len(campaigns)
+        if skipped:
+            rolled["not_summed_fields"] = sorted(skipped)
+        rolled_stats.append(
+            {
+                "sub_request_status": wrapper.get("sub_request_status", "SUCCESS"),
+                "timeseries_stat": rolled,
+            }
+        )
+    out = {k: v for k, v in body.items() if k != "timeseries_stats"}
+    out["timeseries_stats"] = rolled_stats
+    return out
+
+
 def daily_report(
     client: SnapchatApiClient,
     ad_account_id: str,
@@ -130,17 +259,22 @@ def daily_report(
     days: int = 7,
     fields: list[str] | None = None,
 ) -> dict[str, Any]:
-    end = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-    start = end - timedelta(days=days)
-    return sync_stats(
+    # `days` complete account-timezone days plus today, which is still running.
+    tz = _account_timezone(client, ad_account_id)
+    today = datetime.now(tz).date()
+    body = _account_stats(
         client,
-        entity_type="ad_account",
-        entity_id=ad_account_id,
+        ad_account_id,
         granularity="DAY",
-        start_time=start.isoformat(),
-        end_time=end.isoformat(),
+        start_time=_day_start(today - timedelta(days=days), tz),
+        end_time=_day_start(today + timedelta(days=1), tz),
         fields=fields or ["spend", "impressions", "swipes", "conversion_purchases", "conversion_purchases_value"],
     )
+    for wrapper in body.get("timeseries_stats", []):
+        for point in (wrapper.get("timeseries_stat") or {}).get("timeseries", []):
+            if point.get("start_time", "")[:10] == today.isoformat():
+                point["partial"] = True
+    return body
 
 
 def hourly_report(
@@ -150,15 +284,15 @@ def hourly_report(
     hours: int = 24,
     fields: list[str] | None = None,
 ) -> dict[str, Any]:
-    end = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+    tz = _account_timezone(client, ad_account_id)
+    end = datetime.now(tz).replace(minute=0, second=0, microsecond=0)
     start = end - timedelta(hours=hours)
-    return sync_stats(
+    return _account_stats(
         client,
-        entity_type="ad_account",
-        entity_id=ad_account_id,
+        ad_account_id,
         granularity="HOUR",
-        start_time=start.isoformat(),
-        end_time=end.isoformat(),
+        start_time=start.isoformat(timespec="milliseconds"),
+        end_time=end.isoformat(timespec="milliseconds"),
         fields=fields or ["spend", "impressions", "swipes"],
     )
 
@@ -196,15 +330,14 @@ def video_report(
     *,
     days: int = 7,
 ) -> dict[str, Any]:
-    end = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-    start = end - timedelta(days=days)
-    return sync_stats(
+    tz = _account_timezone(client, ad_account_id)
+    today = datetime.now(tz).date()
+    return _account_stats(
         client,
-        entity_type="ad_account",
-        entity_id=ad_account_id,
+        ad_account_id,
         granularity="DAY",
-        start_time=start.isoformat(),
-        end_time=end.isoformat(),
+        start_time=_day_start(today - timedelta(days=days), tz),
+        end_time=_day_start(today, tz),
         fields=[
             "spend",
             "impressions",

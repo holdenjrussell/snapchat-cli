@@ -17,7 +17,7 @@ Use this when the user asks for a Snapchat Ads hourly report that mimics the Met
 
 ## Snapchat API quirks observed
 
-- The ad-account hourly endpoint only supports `spend` at account level. If the CLI call includes other account-level fields it may fail with: `Only field 'spend' should be used when querying AdAccount stats.`
+- The ad-account hourly endpoint only supports `spend` at account level; a raw `report stats --entity ad_account` call with other fields fails with `Only field 'spend' should be used when querying AdAccount stats.` `report hourly` sums a campaign breakdown instead when you ask for more than `spend`.
 - Top-ad breakdown reports can supply ad-level `impressions`, `swipes`, `spend`, and `conversion_purchases`; use those for the detailed thread when available.
 - Snap account timezone may be different from the user's operational timezone. Reports should display the latest finalized hour in both PT and the account timezone when useful.
 - Daily granularity may require start/end times aligned to the account timezone midnight. Prefer the hourly endpoint for hourly report crons.

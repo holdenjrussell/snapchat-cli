@@ -293,8 +293,9 @@ snapchat-ads pixel send-events <PIXEL_ID> --events-file ./events.ndjson --execut
 
 For hourly Snapchat Ads heartbeat crons that mimic the Meta heartbeat format, use a small pre-run collector script plus your scheduler's threaded JSON delivery (main_message/thread_message contract):
 
-- Account-level `report hourly` only supports `spend` fields. If you request impressions/swipes/purchases at ad-account hourly granularity, Snap returns `Unsupported Stats Query: Only field 'spend' should be used when querying AdAccount stats.`
-- Use `report hourly --hours 24 --fields spend` for the hourly spend pulse.
+- Snap serves only `spend` at ad-account level; any other field returns E1008 (`Unsupported Stats Query: Only field 'spend' should be used when querying AdAccount stats.`). `report daily`, `report hourly` and `report video` work around it: when you ask for more than `spend` they request a campaign breakdown and sum it back to account grain (`rolled_up_from: campaign`). Fields that cannot be added across campaigns (uniques, frequency, averages, rates, effective costs) are left out and listed in `not_summed_fields`; recompute ratios from the summed counts.
+- These account reports build day and hour boundaries in the ad account's timezone. `report daily --days N` returns N closed days plus today, with today's bucket marked `partial: true`.
+- Use `report hourly --hours 24 --fields spend` for the hourly spend pulse (one direct account call, no rollup).
 - Use `report stats --entity ad_account --granularity TOTAL --breakdown ad --fields spend,impressions,swipes,conversion_purchases,conversion_purchases_value` over exact ET-aligned windows for ad-level ROAS/CPA/purchase readouts.
 - Prefer exact windows like `America/New_York now rounded to the hour minus 24h -> current hour` over `top-ads --days 1`; `--days 1` can land on a prior 24h/calendar window and is too loose for heartbeat reporting.
 - Snap account timezones matter. The example account below reports in `America/New_York`; present the latest hour in both PT and ET when posting in Slack.
@@ -320,7 +321,7 @@ snapchat-ads report stats --entity ad_account --granularity DAY \
   --fields spend,impressions,swipes,conversion_purchases \
   --csv-out /tmp/snap-april.csv
 
-# Hourly ad-account spend. Snap's ad-account hourly endpoint supports spend-only.
+# Hourly ad-account spend. Other fields are summed from a campaign breakdown.
 snapchat-ads report hourly --hours 24 --fields spend
 
 # Ad-level breakdowns can provide impressions/swipes/purchases for report detail.
