@@ -492,6 +492,28 @@ def slack_post(channel: str, text: str, thread_ts: str | None = None) -> dict:
     return data
 
 
+def quiet_hour_now(zone_name: str | None = None) -> bool:
+    """True when this report-zone hour is listed in HEARTBEAT_QUIET_HOURS.
+
+    Default "0": no 12 AM post. At 12 AM in the account time zone the new day has
+    no completed hour, so the post could only say figures were unavailable.
+    Only the Slack post is skipped; anything the run does before posting
+    (syncs, catch-ups) still happens. HEARTBEAT_QUIET_HOURS="" posts every hour.
+    """
+    from datetime import datetime as _datetime
+    from zoneinfo import ZoneInfo as _ZoneInfo
+    raw = os.environ.get("HEARTBEAT_QUIET_HOURS", "0")
+    hours = {int(part) for part in raw.replace(",", " ").split() if part.isdigit() and int(part) < 24}
+    if not hours:
+        return False
+    zone = zone_name or os.environ.get("META_ACCOUNT_TIMEZONE") or os.environ.get("REPORT_TZ") or "America/Los_Angeles"
+    try:
+        tz = _ZoneInfo(zone)
+    except Exception:
+        tz = _ZoneInfo("America/Los_Angeles")
+    return _datetime.now(tz).hour in hours
+
+
 def main() -> int:
     import argparse
     parser = argparse.ArgumentParser()
@@ -508,6 +530,9 @@ def main() -> int:
 
     load_env_file(ENV_FILE)
     data = collect()
+    if quiet_hour_now(_account_zone(data)[0]):
+        print("12 AM quiet hour: no Snapchat heartbeat posted")
+        return 0
     main_text, thread_text = build_messages(data)
     main_block, thread_block = build_blocks(data, main_text)
 
